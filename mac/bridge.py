@@ -1165,8 +1165,13 @@ class Bridge:
         # Pestanyes dels navegadors (pantalles "tabs"): llista i temporitzador.
         self._tabs_nav = ""                   # navegador que mirem ara
         self._tabs_clau = None                # ultima llista enviada (per no repetir)
-        self._tabs_t = 0.0                    # ultima vegada que les hem mirat
+        self._tabs_t = 0.0                    # ultima vegada que les hem enviat
         self._fav_done = set()                # favicons que ja hem pujat
+        # La LECTURA es fa en un fil propi (run_tabs_loop): els AppleScript dels
+        # navegadors poden trigar segons i, si es fan al bucle d'estadistiques,
+        # la placa perd l'enllac i apaga la pantalla. Aqui nomes hi ha memoria.
+        self._tabs_llegides = []              # ultimes pestanyes llegides [(titol,url)]
+        self._tabs_req = threading.Event()    # la placa acaba de demanar-les
 
     # -- utilitats --------------------------------------------------------
     def log(self, msg):
@@ -1548,10 +1553,12 @@ class Bridge:
             return False
 
         # La placa demana que reenviem les pestanyes (acaba d'entrar a una
-        # pantalla "tabs"). Resetejem la clau i ho fem de seguida.
+        # pantalla "tabs"). Envia de seguida l'ultima llista que tenim (sense
+        # esperar el proper cicle del fil) i li demanem rellegir-la.
         if action_id == "refresh:tabs":
             self._tabs_clau = None
-            self.poll_tabs()
+            self._tabs_req.set()
+            self.send_tabs_if_changed()
             return True
 
         # Pestanyes: activar la pestanya N del navegador obert.
@@ -1598,50 +1605,87 @@ class Bridge:
         return [i for i, pg in enumerate(self.config.get("pages", []))
                 if str(pg.get("layout", "")) == "tabs"]
 
-    def poll_tabs(self):
-        """Llegeix les pestanyes del navegador obert i les envia a la placa.
+    def send_tabs_if_changed(self):
+        """Envia a la placa les pestanyes ja LLEGIDES, si han canviat.
 
-        Nomes mira el navegador que tenim al davant (i que sabem llegir). Envia
-        una sola linia global 'T Titol=favicon|...' (totes les pantalles 'tabs'
-        mostren la mateixa llista) i nomes quan la llista canvia. Abans puja a
-        la SD els favicons que encara no hi son (una mica cada cop, per no
-        saturar la UART mentre la placa rep estadistiques).
+        No fa cap crida AppleScript (la lectura es fa a run_tabs_loop, en un
+        fil propi). Aquesta funcio es crida des del bucle d'estadistiques i
+        des de l'acció 'refresh:tabs'; com que nomes toca memoria i la UART,
+        mai no bloqueja el bucle (si el bloqueges, la placa perd l'enllac i
+        apagaria la pantalla: es el que passava abans).
         """
-        pages = self.tab_pages()
-        if not pages:
+        if not self.tab_pages():
             return
-        if not (self.ser is not None and self._ready and not self._busy.is_set()):
+        if not (self.ser is not None and self._ready
+                and not self._busy.is_set()):
             return
-        nav = browser_running()
-        tabs = browser_tabs(nav) if nav else []
-        self._tabs_nav = nav
-
-        # Pujem els favicons que faltin (maxim FAV_MAX en total). Cada icona es
-        # puja amb ack, aixi que nomes en fem una o dues per cicle.
-        icones_sd = set(list_icons())
-        pujats = 0
-        for _titol, url in tabs:
-            if pujats >= 2:
-                break
-            ic = favicon_icon(url)
-            if not ic or ic in icones_sd or ic in self._fav_done:
-                continue
-            if len(self._fav_done) >= FAV_MAX:
-                break
-            self._fav_done.add(ic)
-            png = favicon_png(url)
-            if png and self.upload_icon(ic, png):
-                pujats += 1
-                icones_sd.add(ic)
-
-        # Enviem la linia nomes si les pestanyes han canviat (titol o favicon).
+        tabs = self._tabs_llegides
+        # Envia la linia nomes si les pestanyes han canviat (titol o favicon).
         clau = tuple((t, favicon_icon(u)) for t, u in tabs)
         if clau == self._tabs_clau:
             return
         self._tabs_clau = clau
+        icones_sd = set(list_icons())
         self.send_line(tabs_line(tabs, icones_sd))
-        if tabs:
-            self.log(f"pestanyes: {len(tabs)} de {nav or 'cap navegador'}")
+        self.log(f"pestanyes: {len(tabs)} de {self._tabs_nav or 'cap navegador'}")
+
+    def run_tabs_loop(self):
+        """Fil propi: llegeix les pestanyes del navegador cada 3 s (i les apps).
+
+        Els AppleScript dels navegadors poden trigar segons quan l'aplicacio
+        esta ocupada. Si els féssim al bucle d'estadistiques, la placa no
+        rebria cap 'S' durant aquest temps, diria 'enllac perdut' i apagaria
+        la pantalla. Aqui nomes es toca memoria; l'enviament el fa
+        send_tabs_if_changed() (i, per a les apps, directament aqui, amb la
+        mateixa proteccio d'enllac que abans).
+        """
+        t_apps = 0.0
+        while self.running:
+            try:
+                # Apps obertes per al launcher: mateixa raó que les pestanyes
+                # (System Events pot trigar fins a 4 s).
+                if time.time() - t_apps > 5.0:
+                    t_apps = time.time()
+                    apps = running_apps()
+                    if apps != self._apps:
+                        self._apps = apps
+                        if (self.ser is not None and self._ready
+                                and not self._busy.is_set()):
+                            self.send_line(launcher_line(apps))
+                            self.log(f"launcher: {len(apps)} apps obertes")
+                if self.tab_pages():
+                    nav = browser_running()
+                    tabs = browser_tabs(nav) if nav else []
+                    self._tabs_nav = nav
+                    self._tabs_llegides = tabs
+                    self._tabs_req.clear()
+                    # Un favicon per volta: la pujada va amb ack per la UART i
+                    # tambe triga (per aixo es fora del bucle de stats).
+                    self._push_one_favicon(tabs)
+            except Exception as exc:
+                self.log(f"error de pestanyes: {exc}")
+            time.sleep(3.0)
+
+    def _push_one_favicon(self, tabs):
+        """Puja com a MAXIM un favicon per cridada (descarrega + conversio + ack).
+
+        Retorna despres de la primera pujada intentada: aixi una sola icona
+        per volta i l'enllac no es veu afectat.
+        """
+        if self.ser is None or self._busy.is_set():
+            return
+        icones_sd = set(list_icons())
+        for _titol, url in tabs:
+            ic = favicon_icon(url)
+            if not ic or ic in icones_sd or ic in self._fav_done:
+                continue
+            if len(self._fav_done) >= FAV_MAX:
+                return
+            self._fav_done.add(ic)
+            png = favicon_png(url)
+            if png and self.upload_icon(ic, png):
+                icones_sd.add(ic)
+            return
 
     def run_stats_loop(self):
         t_conn = time.time()
@@ -1669,22 +1713,18 @@ class Bridge:
             except Exception as exc:
                 self.log(f"error d'estadistiques: {exc}")
 
-            # Llista d'apps per al launcher (cada 5 s, nomes si canvia).
-            if time.time() - self._apps_t > 5.0:
-                self._apps_t = time.time()
-                apps = running_apps()
-                if apps != self._apps:
-                    self._apps = apps
-                    if (self.ser is not None and self._ready
-                            and not self._busy.is_set()):
-                        self.send_line(launcher_line(apps))
-                        self.log(f"launcher: {len(apps)} apps obertes")
+            # Llista d'apps per al launcher: la llegeix run_tabs_loop (fil
+            # propi); aqui no es fa res (System Events pot trigar 4 s i
+            # trencaria l'enllac si ho féssim aqui).
 
             # Pestanyes dels navegadors per a les pantalles "tabs" (cada 3 s).
+            # NOMES enviem: la lectura (AppleScript) la fa run_tabs_loop en un
+            # fil propi, perque si es féssim aqui i l'app triga, la placa no
+            # rebria stats, perdria l'enllac i apagaria la pantalla.
             if time.time() - self._tabs_t > 3.0:
                 self._tabs_t = time.time()
                 try:
-                    self.poll_tabs()
+                    self.send_tabs_if_changed()
                 except Exception as exc:
                     self.log(f"error de pestanyes: {exc}")
 
@@ -1926,10 +1966,14 @@ class Bridge:
         t1 = threading.Thread(target=self.run_stats_loop, daemon=True)
         t2 = threading.Thread(target=self.run_read_loop, daemon=True)
         t3 = threading.Thread(target=self.run_weather_loop, daemon=True)
+        # Fil dels AppleScript lents (pestanyes del navegador i apps obertes):
+        # aixi el bucle d'estadistiques mai no es queda sense enviar stats.
+        t4 = threading.Thread(target=self.run_tabs_loop, daemon=True)
         t1.start()
         t2.start()
         t3.start()
-        self.threads = [t1, t2, t3]
+        t4.start()
+        self.threads = [t1, t2, t3, t4]
 
     def run_weather_loop(self):
         """Refresca la meteo cada 20 min (en un fil propi, per no bloquejar)."""
