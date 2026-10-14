@@ -3,12 +3,12 @@
   "refresh_ms": 1000,
   "orientation": "v",
   "theme": 5,
-  "theme_auto": 1,
-  "theme_dark": 0,
+  "theme_auto": 0,
+  "theme_dark": 5,
   "theme_light": 1,
-  "standby_s": 0,
-  "idle_min": 0,
-  "nav": "off",
+  "standby_s": 300,
+  "idle_min": 2,
+  "nav": "bar",
   "pages": [
     {
       "name": "Principal",
@@ -113,6 +113,13 @@
       "apps": [
         "com.apple.Safari"
       ]
+    },
+    {
+      "name": "Pestanyes",
+      "icon": "spotlight",
+      "layout": "tabs",
+      "widgets": [],
+      "buttons": []
     }
   ],
   "notif_on": true

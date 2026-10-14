@@ -23,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from collections import deque
 from datetime import datetime
@@ -225,6 +226,8 @@ DEFAULT_CONFIG = {
         {"name": "Numpad", "icon": "num", "layout": "numpad", "widgets": [],
          "buttons": []},
         {"name": "Obertes", "icon": "activity_monitor", "layout": "launcher", "widgets": [],
+         "buttons": []},
+        {"name": "Pestanyes", "icon": "spotlight", "layout": "tabs", "widgets": [],
          "buttons": []},
         {"name": "Apps", "icon": "spotlight", "layout": "buttons", "widgets": [],
          "buttons": [
@@ -674,7 +677,177 @@ def launcher_line(apps):
     return "L " + "|".join(parts)
 
 
+# --- Pestanyes dels navegadors ---------------------------------------------
+# Les pantalles de tipus "tabs" mostren les PESTANYES obertes del navegador que
+# esta al davant, com a botons amb el seu favicon. En tocar-ne una, la placa
+# envia 'C tab:N' (N, 0-based) i el Mac posa aquella pestanya al davant.
+#
+# El Mac envia la llista amb una linia global (una per a tota la placa):
+#   T Titol1=favicon1|Titol2=favicon2|...
+# El titol va netejat (sense '|' ni '=') perque no es confongui amb els
+# separadors. Les pestanyes sense favicon a la SD van nomes amb el titol.
+
+# Navegadors que sabem llegir: nom d'AppleScript -> com es diu la propietat del
+# titol. (Safari fa servir 'name'; Chrome/Edge/Brave fan servir 'title'.)
+BROWSERS = {
+    "Safari": "name",
+    "Google Chrome": "title",
+    "Google Chrome Dev": "title",
+    "Google Chrome Canary": "title",
+    "Microsoft Edge": "title",
+    "Microsoft Edge Beta": "title",
+    "Brave Browser": "title",
+    "Chromium": "title",
+    "Vivaldi": "title",
+    "Opera": "title",
+}
+
+
+def osa(script, timeout=3.0):
+    """Executa un tros d'AppleScript i torna la sortida (o '' si falla)."""
+    try:
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def browser_running():
+    """Nom d'AppleScript del primer navegador obert que sabem llegir (o '')."""
+    out = osa('tell application "System Events" to get name of every '
+              'process whose background only is false', timeout=4.0)
+    oberts = {a.strip() for a in out.replace("\n", ",").split(",") if a.strip()}
+    for nom in BROWSERS:
+        if nom in oberts:
+            return nom
+    return ""
+
+
+def _domini_net(url):
+    """Domini d'una URL, curt i llegible (per si hem de mostrar-lo)."""
+    try:
+        from urllib.parse import urlparse
+        h = urlparse(url).netloc or url
+        return re.sub(r"^www\.", "", h).split(":")[0] or url
+    except Exception:
+        return url
+
+
+def browser_tabs(navegador, maxim=15):
+    """Llista de (titol, url) de les pestanyes obertes del navegador.
+
+    Llegeix titols i URLs per separat i els emparella. La llista de URLs sempre
+    te exactament un element per pestanya (les URLs no porten ', '). Els titols
+    tambe venen separats per ', ', pero aixo es feble: un titol pot contenir una
+    coma (sobre tot a Chrome). Per no desalliniar cap titol amb la seva URL,
+    nomes confiem en els titols si en tenim EXACTAMENT tants com URLs; si no,
+    mostrem el domini de cada URL (clar i curt) com a titol.
+    """
+    prop = BROWSERS.get(navegador, "title")
+    titols = osa(f'tell application "{navegador}" to get {prop} of tabs of '
+                 f'front window', timeout=3.0)
+    urls = osa(f'tell application "{navegador}" to get URL of tabs of front '
+               f'window', timeout=3.0)
+    if not urls:
+        return []
+    ll_t = [t.strip() for t in titols.split(", ")] if titols else []
+    ll_u = [u.strip() for u in urls.split(", ")]
+    # Nomes ens refiem dels titols si quadren exactament amb les URLs.
+    titols_fiables = (len(ll_t) == len(ll_u))
+    tabs = []
+    for i, u in enumerate(ll_u):
+        t = ll_t[i] if (titols_fiables and ll_t[i]) else _domini_net(u)
+        tabs.append((t, u))
+        if len(tabs) >= maxim:
+            break
+    return tabs
+
+
+def activate_tab(navegador, index):
+    """Porta al davant la pestanya 'index' (1-based) del navegador."""
+    nav = navegador or browser_running()
+    if not nav:
+        return False
+    if nav == "Safari":
+        # A Safari s'ha de triar la pestanya concreta amb 'current tab'.
+        osa(f'tell application "{nav}" to set current tab of front window to '
+            f'tab {index} of front window', timeout=3.0)
+    else:
+        # Chrome i la resta: per index (1-based).
+        osa(f'tell application "{nav}" to set active tab index of front window '
+            f'to {index}', timeout=3.0)
+    osa(f'tell application "{nav}" to activate', timeout=3.0)
+    return True
+
+
+# --- Favicons: cada pestanya porta el favicon del seu lloc web -------------
+# El favicon es descarrega (Google s2, 64 px), es converteix a .bin com qualsevol
+# icona i es puja a la SD. Es guarden en una memoria curta per no descarregar
+# ni pujar el mateix favicon cada cop. El nom de la icona surt del DOMINI de la
+# URL: aixi totes les pestanyes d'un mateix lloc comparteixen favicon (i el nom
+# es estable: 'account.ultimaker.com' -> 'accountultimakercom').
+FAV_CACHE = {}        # domini -> nom d'icona (o "" si no s'ha pogut)
+FAV_MAX = 40          # maxim de favicons diferents (la SD es petita)
+
+
+def favicon_icon(url):
+    """Nom de la icona (favicon) d'una URL, o "" si no se'n pot treure."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).netloc or urlparse(url).path.split("/")[0]).lower()
+        if not host:
+            return ""
+        host = host.split(":")[0]            # treu el port
+    except Exception:
+        return ""
+    if not host or host in ("127.0.0.1", "localhost"):
+        return ""                            # les locals no tenen favicon util
+    if host not in FAV_CACHE:
+        FAV_CACHE[host] = clean_icon_name(host.replace(".", ""))[:19]
+    return FAV_CACHE[host]
+
+
+def favicon_png(url, px=64):
+    """Bytes PNG del favicon d'una URL (Google s2) o None si no hi e'.
+
+    Fa servir 'curl' en comptes d'urllib: alguns Python (p.ex. el de
+    miniforge) no tenen els certificats SSL del sistema i urllib falla, mentre
+    que curl (que va amb els certificats de macOS) va be.
+    """
+    try:
+        q = urllib.parse.quote(url, safe="")
+        url_api = f"https://www.google.com/s2/favicons?sz={px}&domain_url={q}"
+        r = subprocess.run(["curl", "-sL", "--max-time", "6",
+                            "-A", "Mozilla/5.0", url_api],
+                           capture_output=True, timeout=8.0)
+        data = r.stdout
+        if data[:8] == b"\x89PNG\r\n\x1a\n":
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def tabs_line(tabs, favicons_ok):
+    """Linia 'T Titol=favicon|...' amb les pestanyes i els seus favicons.
+
+    'favicons_ok' es el conjunt de noms d'icona ja presents a la SD (nomes
+    d'aquests posem el '='; la resta surten nomes amb el titol).
+    """
+    parts = []
+    for titol, url in tabs:
+        nom = re.sub(r"[|=]", " ", titol or "").strip()[:27] or "..."
+        ic = favicon_icon(url)
+        if ic and ic in favicons_ok:
+            parts.append(f"{nom}={ic}")
+        else:
+            parts.append(nom)
+    return "T " + "|".join(parts)
+
+
 def next_event():
+
     """Proper esdeveniment de l'agenda del Mac (o ""). Pot trigar una mica."""
     script = ('tell application "Calendar"\n'
               'set n to current date\n'
@@ -989,6 +1162,11 @@ class Bridge:
         self.notifs_on = True                 # es pot aturar des del panell
         self.app = ("", "")                   # app que te el focus
         self._app_t = 0.0
+        # Pestanyes dels navegadors (pantalles "tabs"): llista i temporitzador.
+        self._tabs_nav = ""                   # navegador que mirem ara
+        self._tabs_clau = None                # ultima llista enviada (per no repetir)
+        self._tabs_t = 0.0                    # ultima vegada que les hem mirat
+        self._fav_done = set()                # favicons que ja hem pujat
 
     # -- utilitats --------------------------------------------------------
     def log(self, msg):
@@ -1369,6 +1547,24 @@ class Bridge:
             self.log(f"index d'app invalid: {idx}")
             return False
 
+        # La placa demana que reenviem les pestanyes (acaba d'entrar a una
+        # pantalla "tabs"). Resetejem la clau i ho fem de seguida.
+        if action_id == "refresh:tabs":
+            self._tabs_clau = None
+            self.poll_tabs()
+            return True
+
+        # Pestanyes: activar la pestanya N del navegador obert.
+        if action_id.startswith("tab:"):
+            try:
+                idx = int(action_id.split(":", 1)[1])
+            except ValueError:
+                return False
+            ok = activate_tab(self._tabs_nav, idx + 1)  # la placa envia 0-based
+            self.log(f"activo la pestanya {idx} de "
+                     f"{self._tabs_nav or 'el navegador'}")
+            return ok
+
         if action_id.startswith("custom:"):
             cmd = None
             for b in self.config.get("buttons", []):
@@ -1397,6 +1593,56 @@ class Bridge:
             return False
 
     # -- bucles -----------------------------------------------------------
+    def tab_pages(self):
+        """Indexos de les pantalles de tipus 'tabs' (les que mostren pestanyes)."""
+        return [i for i, pg in enumerate(self.config.get("pages", []))
+                if str(pg.get("layout", "")) == "tabs"]
+
+    def poll_tabs(self):
+        """Llegeix les pestanyes del navegador obert i les envia a la placa.
+
+        Nomes mira el navegador que tenim al davant (i que sabem llegir). Envia
+        una sola linia global 'T Titol=favicon|...' (totes les pantalles 'tabs'
+        mostren la mateixa llista) i nomes quan la llista canvia. Abans puja a
+        la SD els favicons que encara no hi son (una mica cada cop, per no
+        saturar la UART mentre la placa rep estadistiques).
+        """
+        pages = self.tab_pages()
+        if not pages:
+            return
+        if not (self.ser is not None and self._ready and not self._busy.is_set()):
+            return
+        nav = browser_running()
+        tabs = browser_tabs(nav) if nav else []
+        self._tabs_nav = nav
+
+        # Pujem els favicons que faltin (maxim FAV_MAX en total). Cada icona es
+        # puja amb ack, aixi que nomes en fem una o dues per cicle.
+        icones_sd = set(list_icons())
+        pujats = 0
+        for _titol, url in tabs:
+            if pujats >= 2:
+                break
+            ic = favicon_icon(url)
+            if not ic or ic in icones_sd or ic in self._fav_done:
+                continue
+            if len(self._fav_done) >= FAV_MAX:
+                break
+            self._fav_done.add(ic)
+            png = favicon_png(url)
+            if png and self.upload_icon(ic, png):
+                pujats += 1
+                icones_sd.add(ic)
+
+        # Enviem la linia nomes si les pestanyes han canviat (titol o favicon).
+        clau = tuple((t, favicon_icon(u)) for t, u in tabs)
+        if clau == self._tabs_clau:
+            return
+        self._tabs_clau = clau
+        self.send_line(tabs_line(tabs, icones_sd))
+        if tabs:
+            self.log(f"pestanyes: {len(tabs)} de {nav or 'cap navegador'}")
+
     def run_stats_loop(self):
         t_conn = time.time()
         while self.running:
@@ -1434,6 +1680,14 @@ class Bridge:
                         self.send_line(launcher_line(apps))
                         self.log(f"launcher: {len(apps)} apps obertes")
 
+            # Pestanyes dels navegadors per a les pantalles "tabs" (cada 3 s).
+            if time.time() - self._tabs_t > 3.0:
+                self._tabs_t = time.time()
+                try:
+                    self.poll_tabs()
+                except Exception as exc:
+                    self.log(f"error de pestanyes: {exc}")
+
             # Notificacions del macOS -> baner a la pantalla (cada 2 s).
             if self.notifs_on and time.time() - self._notif_t > 2.0:
                 self._notif_t = time.time()
@@ -1441,7 +1695,6 @@ class Bridge:
                     if (self.ser is not None or self.sock is not None) \
                             and self._ready and not self._busy.is_set():
                         self.send_notice(n)
-
             # Aplicacio que te el focus: l'enviem nomes quan canvia. Si no en
             # detectem cap (salvapantalles, sessio bloquejada...) ens quedem
             # amb l'ultima que sabiem: aixi la placa no torna a la primera

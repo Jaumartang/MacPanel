@@ -527,7 +527,8 @@ function renderPages() {
     [["status", "Gadgets + botons"], ["buttons", "Nomes botons"],
      ["gauges", "Gauges circulars"], ["graph", "Grafics (historial)"],
      ["clock", "Rellotge + meteo"],
-     ["numpad", "Teclat numeric"], ["launcher", "Launcher (apps obertes)"]].forEach(([v, l]) => {
+     ["numpad", "Teclat numeric"], ["launcher", "Launcher (apps obertes)"],
+     ["tabs", "Pestanyes del navegador"]].forEach(([v, l]) => {
       ly.appendChild(el("option", Object.assign({ value: v }, v === p.layout ? { selected: "selected" } : {}), l));
     });
     ly.addEventListener("change", () => { p.layout = ly.value; syncWidgets(); renderAll(); });
@@ -899,6 +900,27 @@ function renderPreview() {
     g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "18px -apple-system,sans-serif";
     g.fillText(Math.round(s.temp || 0) + " C", W / 2, iy + isz / 2 + 20);
     g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
+  } else if (page.layout === "tabs") {
+    // La llista de pestanyes la posa el Mac en viu (requereix placa): a la
+    // previsio mostrem un exemple de com quedaran (favicon + titol).
+    g.fillStyle = "#8b9bb0"; g.font = "13px -apple-system,sans-serif";
+    g.fillText("Pestanyes del navegador obert:", 8, y + 6);
+    y += 26;
+    const exemples = [
+      { nom: "exemple1", titol: "pestanya 1" }, { nom: "exemple2", titol: "pestanya 2" },
+      { nom: "exemple3", titol: "pestanya 3" }, { nom: "exemple4", titol: "pestanya 4" },
+    ];
+    const cols = 2, cellW = (W - 6) / cols, cellH = 62;
+    exemples.forEach((ex, i) => {
+      const cx = 3 + (i % cols) * cellW, cy = y + Math.floor(i / cols) * (cellH + 4);
+      g.fillStyle = "#1d2836"; roundRect(g, cx + 2, cy, cellW - 4, cellH, 8); g.fill();
+      const im = getIconImg(ex.nom); const isz = 26;
+      if (im && im.complete && im.naturalWidth) g.drawImage(im, cx + cellW / 2 - isz / 2, cy + 7, isz, isz);
+      g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "12px -apple-system,sans-serif";
+      g.fillText(ex.titol, cx + cellW / 2, cy + cellH - 9);
+      g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
+    });
+    y += Math.ceil(exemples.length / cols) * (cellH + 4);
   } else if (page.layout === "status") {
     for (const w of (page.widgets || [])) {
       g.fillStyle = "#1d2836"; roundRect(g, 6, y + 2, W - 12, 30, 6); g.fill();

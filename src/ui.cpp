@@ -1005,9 +1005,9 @@ void buildTabs()
     gTabsCount = MacLink::tabCount();
     if (gTabsCount > TABS_MAX) gTabsCount = TABS_MAX;
     for (int i = 0; i < gTabsCount; ++i) {
-        /* L'id va 1-based: el Mac activa la pestanya pel seu numero (1..N),
-         * igual que envia els titols. */
-        snprintf(gTabs[i].id, sizeof(gTabs[i].id), "tab:%d", i + 1);
+        /* L'id va 0-based (com les apps del launcher): el Mac rep el numero i el
+         * converteix a l'index 1-based que vol AppleScript. */
+        snprintf(gTabs[i].id, sizeof(gTabs[i].id), "tab:%d", i);
         strlcpy(gTabs[i].label, MacLink::tabName(i), sizeof(gTabs[i].label));
         gTabs[i].keys[0] = '\0';
         const char* ic = MacLink::tabIcon(i);
@@ -2633,6 +2633,11 @@ void setPage(int index)
     }
     gPage = index;
     layout();
+    /* En entrar a una pantalla de pestanyes, demem al Mac que ens les envií
+     * de seguida (si no, hauriem d'esperar el cicle de 3 s del pont). */
+    if (pageIsTabs()) {
+        requestTabs();
+    }
 }
 
 /* --- Pantalla de repòs (rellotge) ----------------------------------------- */

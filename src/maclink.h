@@ -133,7 +133,7 @@ bool takeAppsChanged();
  * La pantalla de tipus "tabs" mostra les pestanyes obertes del navegador que te
  * el focus, com a botons amb el seu favicon. Com les apps del launcher, es una
  * sola llista (el Mac ja les filtra: nomes envia les del navegador actiu).
- * En tocar-ne una, la placa envia 'C tab:N' (N, 1-based) i el Mac la porta al
+ * En tocar-ne una, la placa envia 'C tab:N' (N, 0-based) i el Mac la porta al
  * davant. */
 static constexpr int MAX_TABS = 15;         /* pestanyes visibles */
 
