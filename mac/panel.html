@@ -1,0 +1,1592 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Panel - Control</title>
+<style>
+  :root {
+    --bg: #0f1319; --card: #171d26; --card2: #1e2632; --edge: #2c3746;
+    --text: #e8eef7; --dim: #8b9bb0; --accent: #2ad4ff;
+    --ok: #35d07f; --bad: #ff5b6a; --warn: #ffcc4d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+           padding: 12px 18px; background: var(--card); border-bottom: 1px solid var(--edge);
+           position: sticky; top: 0; z-index: 10; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  select, input, button { background: var(--card2); color: var(--text);
+    border: 1px solid var(--edge); border-radius: 8px; padding: 7px 10px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #04222b; border-color: var(--accent); font-weight: 600; }
+  button.ghost { background: transparent; }
+  button.icon { padding: 4px 9px; line-height: 1; }
+  .spacer { flex: 1; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+         padding: 16px 18px; max-width: 1250px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 12px 14px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 0 0 10px; }
+  .row { display: flex; align-items: center; gap: 8px; background: var(--card2);
+         border: 1px solid var(--edge); border-radius: 9px; padding: 7px 9px; margin-bottom: 7px; }
+  .row.sel { border-color: var(--accent); }
+  .row .name { flex: 1; font-weight: 600; }
+  .row.dim .name { color: var(--dim); font-weight: 400; }
+  .row input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
+  .row img.ico { width: 24px; height: 24px; object-fit: contain; }
+  .muted { color: var(--dim); font-size: 12px; }
+  .quickadd { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
+  .chip { background: var(--card2); border: 1px solid var(--edge); border-radius: 999px;
+          padding: 4px 11px; font-size: 12px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip.used { opacity: .45; }
+  footer { display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+           padding: 4px 18px 20px; max-width: 1250px; margin: 0 auto; }
+  #log { background: #0a0d12; border: 1px solid var(--edge); border-radius: 10px;
+         font: 12px/1.5 ui-monospace, Menlo, monospace; color: var(--dim);
+         padding: 10px 12px; height: 150px; overflow: auto; white-space: pre-wrap;
+         margin: 0 18px 24px; max-width: 1250px; }
+  .pill { font-size: 12px; color: var(--dim); }
+
+  /* --- Apartats: plegables, arrossegables i redimensionables --------------- */
+  section { position: relative; }
+  section h2 { cursor: pointer; user-select: none; display: flex;
+               align-items: center; gap: 7px; }
+  section h2 .chev { font-size: 11px; color: var(--accent);
+                     transition: transform .15s ease; }
+  section.plegat h2 .chev { transform: rotate(-90deg); }
+  /* Amaguem tot el contingut de l'apartat, pero no la capcalera. */
+  section.plegat > *:not(h2) { display: none !important; }
+  section.plegat { padding-bottom: 8px; }
+  .sec-grip { margin-left: auto; cursor: grab; color: var(--dim);
+              font-size: 13px; letter-spacing: -1px; opacity: 0;
+              transition: opacity .15s; }
+  section h2:hover .sec-grip { opacity: .8; }
+  .sec-grip:active { cursor: grabbing; }
+  section.arrossegant { opacity: .35; }
+  section.dropamunt { box-shadow: 0 -3px 0 -1px var(--accent); }
+  section.dropavall { box-shadow: 0  3px 0 -1px var(--accent); }
+
+  /* Nansa per canviar l'amplada de les dues columnes. */
+  #splitter { position: fixed; width: 11px; cursor: col-resize; z-index: 30;
+              display: none; touch-action: none; }
+  #splitter::after { content: ""; position: absolute; left: 4px; top: 0;
+                     width: 3px; height: 100%; border-radius: 2px;
+                     background: transparent; transition: background .15s; }
+  #splitter:hover::after, #splitter.actiu::after { background: var(--accent); }
+  .statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--card2); border: 1px solid var(--edge); border-radius: 9px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 18px; }
+  .stat span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  /* Arrossegar i deixar anar */
+  .grip { cursor: grab; color: var(--dim); font-size: 15px; line-height: 1;
+          padding: 0 2px; user-select: none; }
+  .grip:active { cursor: grabbing; }
+  .row.dropbefore { box-shadow: 0 -3px 0 -1px var(--accent); }
+  .row.dropafter  { box-shadow: 0  3px 0 -1px var(--accent); }
+  .row.dragging { opacity: .35; }
+  /* El boto de desar fa un pols quan hi ha canvis sense guardar. */
+  button.pendent { animation: pols 1.4s ease-in-out infinite; }
+  @keyframes pols { 0%, 100% { box-shadow: 0 0 0 0 rgba(42, 212, 255, .7); }
+                    50%      { box-shadow: 0 0 0 7px rgba(42, 212, 255, 0); } }
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; max-height: 88px; overflow: auto;
+             background: var(--bg); border: 1px dashed var(--edge); border-radius: 9px;
+             padding: 6px; margin-bottom: 10px; }
+  .palette img { width: 26px; height: 26px; object-fit: contain; cursor: grab;
+                 border-radius: 6px; padding: 2px; }
+  .palette img:hover { background: var(--card2); outline: 1px solid var(--accent); }
+  .palette .hint { color: var(--dim); font-size: 11px; align-self: center; padding: 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mac Panel</h1>
+  <span class="dot" id="dot"></span>
+  <span class="pill" id="connLabel">desconnectat</span>
+  <select id="portSel" title="Port serie"></select>
+  <button id="btnConnect" class="ghost">Connecta</button>
+  <button id="btnDisconnect" class="ghost">Desconnecta</button>
+  <span class="spacer"></span>
+  <span class="pill" id="statsPill"></span>
+</header>
+
+<main>
+  <section style="grid-column: 1 / -1">
+    <h2>Enllac amb la placa</h2>
+    <div class="toolbar">
+      <span class="muted">Mode:</span>
+      <select id="linkMode">
+        <option value="serial">Cable (USB)</option>
+        <option value="wifi">WiFi</option>
+      </select>
+      <span class="muted">Host:</span>
+      <input type="text" id="linkHost" placeholder="macpanel.local" style="width:160px">
+      <button id="btnApplyLink" class="ghost">Aplica i reconnecta</button>
+      <span class="pill" id="linkStatus"></span>
+    </div>
+    <div class="toolbar">
+      <span class="muted">WiFi de casa:</span>
+      <input type="text" id="wifiSsid" placeholder="nom de la xarxa" style="width:160px">
+      <input type="password" id="wifiPass" placeholder="contrasenya" style="width:150px">
+      <button id="btnSendWifi" class="ghost">Envia a la placa</button>
+      <span class="pill" id="wifiStatus"></span>
+    </div>
+    <p class="muted">Primer envia les credencials pel cable i despres canvia el mode a WiFi.
+    El WiFi i el Bluetooth comparteixen radio: si el teclat va lent, torna al cable.</p>
+  </section>
+
+  <section style="grid-column: 1 / -1">
+    <h2>Pantalles</h2>
+    <div class="toolbar">
+      <span class="muted">Columnes:</span>
+      <select id="cols" title="Amplada de les dues columnes del panell">
+        <option value="1">50 / 50</option>
+        <option value="0.65">65 / 35</option>
+        <option value="0.35">35 / 65</option>
+        <option value="0.75">75 / 25</option>
+        <option value="0">Una sola columna</option>
+      </select>
+      <button id="btnPlegar" class="ghost"
+              title="Plegar o desplegar tots els apartats">Plegar-ho tot</button>
+      <button id="btnOrdre" class="ghost"
+              title="Torna a l'ordre original dels apartats">Ordre original</button>
+    </div>
+    <div class="toolbar">
+      <span class="muted">Orientacio:</span>
+      <select id="orientation">
+        <option value="v">Vertical (320x480)</option>
+        <option value="h">Horitzontal (480x320)</option>
+      </select>
+      <span class="muted">Tema:</span>
+      <select id="theme" title="Amb 'Automatic' el tema el tria la placa segons si el Mac te l'aparenca clara o fosca">
+        <option value="-1">Automatic (segons el Mac)</option>
+        <option value="0">Fosc</option>
+        <option value="1">Clar</option>
+        <option value="2">Neo</option>
+        <option value="3">Grafite</option>
+        <option value="4">Pastel</option>
+        <option value="5">HUD (cian)</option>
+      </select>
+      <span id="autoThemes" style="display:none">
+        <span class="muted">Tema fosc:</span>
+        <select id="themeDark" title="Tema que es fa servir quan el Mac esta en mode fosc">
+          <option value="0">Fosc</option>
+          <option value="1">Clar</option>
+          <option value="2">Neo</option>
+          <option value="3">Grafite</option>
+          <option value="4">Pastel</option>
+          <option value="5">HUD (cian)</option>
+        </select>
+        <span class="muted">Tema clar:</span>
+        <select id="themeLight" title="Tema que es fa servir quan el Mac esta en mode clar">
+          <option value="0">Fosc</option>
+          <option value="1">Clar</option>
+          <option value="2">Neo</option>
+          <option value="3">Grafite</option>
+          <option value="4">Pastel</option>
+          <option value="5">HUD (cian)</option>
+        </select>
+      </span>
+      <span class="muted">Repos:</span>
+      <select id="standby">
+        <option value="0">Mai</option>
+        <option value="30">30 s</option>
+        <option value="60">1 min</option>
+        <option value="120">2 min</option>
+        <option value="300">5 min</option>
+        <option value="600">10 min</option>
+        <option value="1800">30 min</option>
+      </select>
+      <span class="muted">Rellotge si inactiu:</span>
+      <select id="idleMin" title="Si el Mac no rep cap input durant aquest temps, la placa passa sola a la pantalla de rellotge amb la previsio">
+        <option value="0">Mai</option>
+        <option value="1">1 min</option>
+        <option value="2">2 min</option>
+        <option value="5">5 min</option>
+        <option value="10">10 min</option>
+        <option value="20">20 min</option>
+        <option value="30">30 min</option>
+        <option value="60">1 hora</option>
+      </select>
+      <span class="muted">Navegacio:</span>
+      <select id="nav" title="Com es canvia de pantalla">
+        <option value="both">Barra + lliscar</option>
+        <option value="bar">Nomes barra</option>
+        <option value="swipe">Nomes lliscar</option>
+        <option value="off">Sense navegacio</option>
+      </select>
+      <span class="spacer"></span>
+      <button id="btnAddPage" class="ghost">+ Afegeix pantalla</button>
+    </div>
+    <div id="pages"></div>
+  </section>
+
+  <section>
+    <h2>Gadgets de la pantalla</h2>
+    <p class="muted" id="gadgetHint"></p>
+    <div id="widgets"></div>
+    <div class="row">
+      <span class="name">Refresc (ms)</span>
+      <input id="refreshMs" type="number" min="200" max="10000" step="100" style="width:100px">
+    </div>
+  </section>
+
+  <section>
+    <h2>Botons de la pantalla</h2>
+    <p class="muted">Afegeix un boto amb un clic:</p>
+    <div class="quickadd" id="quickAdd"></div>
+    <p class="muted">Icones: arrossega'n una sobre un boto per posar-l'hi.
+       Per <b>reordenar</b>, arrossega el boto pel símbol ⠿.</p>
+    <div class="palette" id="iconPalette"></div>
+    <div id="buttons"></div>
+    <button id="btnAdd" class="ghost">+ Afegeix un boto personalitzat</button>
+  </section>
+
+  <section>
+    <h2>Icones (PNG -&gt; SD)</h2>
+    <p class="muted">Puja un PNG (64x64 o mes, fons transparent) i es desara a la pantalla.</p>
+    <div class="row">
+      <input type="file" id="iconFile" accept="image/png" style="flex:1">
+    </div>
+    <div class="row">
+      <span class="name">Nom</span>
+      <input type="text" id="iconName" placeholder="play" maxlength="19" style="width:110px">
+      <img id="iconPreview" style="width:32px;height:32px;display:none;object-fit:contain">
+      <button id="btnIconUpload" class="primary">Puja a la pantalla</button>
+    </div>
+    <p class="pill" id="iconStatus"></p>
+    <p class="muted">Icones a la placa (fes clic per esborrar):</p>
+    <div class="quickadd" id="iconList"></div>
+  </section>
+
+  <section>
+    <h2>Avisos a la pantalla</h2>
+    <p class="muted">Envia un missatge que surt a la capcalera de la placa uns segons.</p>
+    <div class="row">
+      <input type="text" id="notifyText" placeholder="Missatge..." style="flex:1" maxlength="50">
+      <button id="btnNotify" class="primary">Envia</button>
+    </div>
+    <p class="pill" id="notifyStatus"></p>
+    <p class="muted">Tambe surten avisos automatics (p. ex. bateria baixa).</p>
+  </section>
+
+  <section>
+    <h2>Ajustos de la placa</h2>
+    <div class="row">
+      <span class="name">Brillantor</span>
+      <input type="range" id="blRange" min="5" max="100" value="100" style="flex:1">
+      <span class="pill" id="blVal">100%</span>
+      <button id="btnBl" class="ghost">Aplica</button>
+    </div>
+    <div class="toolbar">
+      <button id="btnCal" class="ghost">Calibrar tactil</button>
+      <button id="btnResetCfg" class="ghost">Config per defecte</button>
+      <button id="btnRestart" class="ghost">Reinicia la placa</button>
+      <span class="pill" id="boardStatus"></span>
+    </div>
+    <p class="muted">El calibratge del tactil es fa mirant la pantalla de la placa.</p>
+  </section>
+
+  <section>
+    <h2>Avisos del Mac (notificacions)</h2>
+    <div class="toolbar">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="notifOn" checked>
+        <span>Enviar les notificacions a la pantalla</span>
+      </label>
+      <span class="spacer"></span>
+      <button id="btnTestNotif" class="ghost">Prova</button>
+    </div>
+    <p class="muted" id="notifHint">
+      Surt un bane com el del macOS: aplicacio, titol i una linia de text.
+    </p>
+    <div id="notifList"></div>
+  </section>
+
+  <section>
+    <h2>Aplicacio que estas fent servir</h2>
+    <div class="row">
+      <span class="name">Ara mateix</span>
+      <span id="appNow" class="muted">-</span>
+    </div>
+    <p class="muted">
+      Quan canviis d'aplicacio, la placa pot saltar sola a la pantalla que li
+      assignis aqui. Tria-la a la fila de cada pantalla (columna
+      &laquo;App&raquo;).
+    </p>
+    <div id="appPages"></div>
+  </section>
+
+  <section>
+    <h2>Estat del Mac (en viu)</h2>
+    <div class="statgrid" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Previsualitzacio</h2>
+    <div id="preview" style="display:flex;justify-content:center"></div>
+    <p class="muted">Aproximacio de la pantalla de la placa (pestanyes a baix).</p>
+  </section>
+</main>
+
+<footer>
+  <button id="btnSave" class="primary">Desa i envia a la pantalla</button>
+  <button id="btnSend" class="ghost">Torna a enviar</button>
+  <span class="pill" id="savePill"></span>
+</footer>
+
+<div id="log"></div>
+
+<script>
+const WIDGET_LABELS = {
+  cpu: "CPU", mem: "RAM", disk: "Disc", bat: "Bateria", net: "Xarxa",
+  load: "Load average", uptime: "Temps ences", time: "Hora", host: "Nom del Mac"
+};
+
+const ACTION_SHORT = {
+  media_prev: "PREV", media_play: "PLAY", media_next: "NEXT",
+  vol_down: "VOL-", vol_up: "VOL+", mute: "MUTE",
+  edit_copy: "COPY", edit_paste: "PASTE", edit_cut: "CUT",
+  edit_undo: "UNDO", edit_redo: "REDO", edit_all: "ALL", edit_find: "FIND",
+  edit_save: "SAVE", edit_dup: "DUP", edit_group: "GROUP",
+  edit_ungroup: "UNGRP", edit_export: "EXPORT", edit_import: "IMPORT",
+  zoom_in: "ZOOM+", zoom_out: "ZOOM-", zoom_fit: "FIT",
+  win_close: "CLOSE", win_full: "FULL",
+  space_left: "ESQ", space_right: "DRETA", mission: "MISSION",
+  app_windows: "FINESTRES", spotlight: "CERCAR", launchpad: "LAUNCHPAD",
+  bright_up: "BRL+", bright_down: "BRL-",
+  app_terminal: "TERM", app_safari: "SAFARI", app_vscode: "VSC",
+  app_music: "MUSIC", app_finder: "FINDER", app_calendar: "CALENDARI",
+  app_facetime: "FACETIME", app_mail: "MAIL", app_notes: "NOTES",
+  app_photos: "FOTOS",
+  app_messages: "Missatges", app_reminders: "Recordat.", app_settings: "Ajustos",
+  app_activity: "Activitat", app_spotify: "Spotify", app_chrome: "Chrome",
+  app_firefox: "Firefox", app_brave: "Brave", app_slack: "Slack",
+  app_teams: "Teams", app_notion: "Notion", app_dropbox: "Dropbox",
+  app_github: "GitHub", app_zoom: "Zoom", app_coreldraw: "CorelDRAW",
+  app_photopaint: "PhotoPaint", app_photoshop: "Photoshop",
+  app_illustrator: "Illustrator", app_indesign: "InDesign", app_figma: "Figma",
+  app_blender: "Blender", app_davinci: "DaVinci", app_premiere: "Premiere",
+  app_quicktime: "QuickTime", app_textedit: "TextEdit",
+  app_timemachine: "TimeMach", app_appstore: "AppStore", app_maps: "Mapes",
+  app_airdrop: "AirDrop", sys_dnd: "No molestar", sys_eject: "Expulsar",
+  sys_lock: "LOCK", sys_sleep: "SLEEP", sys_shot: "SHOT", sys_dark: "DARK"
+};
+
+const FALLBACK_WIDGETS = ["cpu", "mem", "disk", "bat", "net", "load", "uptime", "time", "host"];
+
+let state = { config: {}, stats: {}, actions: {}, actionKeys: {}, widgets: [], icons: [], ports: [] };
+let cfg = { port: "", refresh_ms: 1000, orientation: "v", pages: [] };
+let curPage = 0;
+let uiWidgets = [];
+let customSeq = 1;
+let iconFileData = null;
+
+function api(path, opts) {
+  return fetch(path, opts).then(r => r.json()).catch(() => ({}));
+}
+
+function el(tag, attrs, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") n.className = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v);
+  }
+  for (const c of children) {
+    if (c === null || c === undefined || c === false) continue;
+    n.appendChild(typeof c === "object" ? c : document.createTextNode(String(c)));
+  }
+  return n;
+}
+
+const iconImgCache = {};
+function getIconImg(name) {
+  if (!name) return null;
+  if (!(name in iconImgCache)) {
+    const im = new Image();
+    im.src = "/icons/" + name + ".png";
+    iconImgCache[name] = im;
+  }
+  return iconImgCache[name];
+}
+
+function curPg() { return cfg.pages[curPage]; }
+
+function syncWidgets() {
+  const known = (state.widgets && state.widgets.length) ? state.widgets : FALLBACK_WIDGETS;
+  const page = curPg();
+  uiWidgets = [];
+  for (const w of (page.widgets || [])) {
+    if (known.includes(w) && !uiWidgets.some(x => x.id === w)) uiWidgets.push({ id: w, enabled: true });
+  }
+  for (const w of known) {
+    if (!uiWidgets.some(x => x.id === w)) uiWidgets.push({ id: w, enabled: false });
+  }
+}
+
+// Els selectors de tema fosc/clar nomes tenen sentit amb el tema automatic.
+function toggleAutoThemes() {
+  const on = parseInt(document.getElementById("theme").value, 10) < 0;
+  document.getElementById("autoThemes").style.display = on ? "" : "none";
+}
+
+function loadFromConfig(c) {
+  cfg = JSON.parse(JSON.stringify(c || {}));
+  if (!cfg.refresh_ms) cfg.refresh_ms = 1000;
+  if (!cfg.orientation) cfg.orientation = "v";
+  if (cfg.standby_s === undefined || cfg.standby_s === null) cfg.standby_s = 0;
+  if (cfg.idle_min === undefined || cfg.idle_min === null) cfg.idle_min = 5;
+  if (cfg.notif_on === undefined) cfg.notif_on = true;
+  if (!cfg.nav) cfg.nav = "both";
+  if (!Array.isArray(cfg.pages) || cfg.pages.length === 0) {
+    cfg.pages = [{ name: "Pantalla 1", icon: "", layout: "status", widgets: [], buttons: [] }];
+  }
+  cfg.pages.forEach(p => {
+    if (!Array.isArray(p.widgets)) p.widgets = [];
+    if (!Array.isArray(p.buttons)) p.buttons = [];
+    if (!Array.isArray(p.apps)) p.apps = [];
+    if (!p.layout) p.layout = "buttons";
+    if (!p.name) p.name = "?";
+    if (!p.icon) p.icon = "";
+    p.buttons.forEach(b => {
+      if (!b.label) b.label = b.id;
+      b.enabled = b.on !== false;
+      b.customLabel = String(b.id || "").startsWith("custom:") ||
+                      (b.label || "") !== (ACTION_SHORT[b.id] || b.id);
+      b.customKeys = !!(b.keys || "");
+    });
+  });
+  curPage = Math.max(0, Math.min(curPage, cfg.pages.length - 1));
+  document.getElementById("orientation").value = cfg.orientation;
+  document.getElementById("theme").value = cfg.theme_auto ? -1 : (cfg.theme || 0);
+  document.getElementById("themeDark").value = String(cfg.theme_dark != null ? cfg.theme_dark : 0);
+  document.getElementById("themeLight").value = String(cfg.theme_light != null ? cfg.theme_light : 1);
+  toggleAutoThemes();
+  document.getElementById("standby").value = String(cfg.standby_s);
+  document.getElementById("idleMin").value = String(cfg.idle_min);
+  document.getElementById("notifOn").checked = !!cfg.notif_on;
+  document.getElementById("nav").value = cfg.nav;
+  document.getElementById("refreshMs").value = cfg.refresh_ms;
+  customSeq = 1 + cfg.pages.reduce((n, p) =>
+    n + p.buttons.filter(b => String(b.id || "").startsWith("custom:")).length, 0);
+  syncWidgets();
+}
+
+function movePage(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= cfg.pages.length) return;
+  [cfg.pages[i], cfg.pages[j]] = [cfg.pages[j], cfg.pages[i]];
+  if (curPage === i) curPage = j;
+  else if (curPage === j) curPage = i;
+  renderAll();
+}
+
+function dupPage(i) {
+  if (cfg.pages.length >= 8) { alert("Maxim 8 pantalles"); return; }
+  const c = JSON.parse(JSON.stringify(cfg.pages[i]));
+  c.name = (c.name || "Pantalla").slice(0, 13) + " 2";
+  cfg.pages.splice(i + 1, 0, c);
+  curPage = i + 1;
+  syncWidgets();
+  renderAll();
+}
+
+function delPage(i) {
+  if (cfg.pages.length <= 1) { alert("Cal almenys una pantalla"); return; }
+  if (!confirm("Esborrar la pantalla '" + (cfg.pages[i].name || "?") + "'?")) return;
+  cfg.pages.splice(i, 1);
+  curPage = Math.max(0, Math.min(curPage, cfg.pages.length - 1));
+  syncWidgets();
+  renderAll();
+}
+
+function renderPages() {
+  const box = document.getElementById("pages");
+  box.innerHTML = "";
+  cfg.pages.forEach((p, i) => {
+    const sel = i === curPage;
+
+    const nm = el("input", { type: "text", value: p.name || "", maxlength: "15", style: "width:125px" });
+    nm.addEventListener("input", () => { p.name = nm.value; renderPreview(); });
+
+    const ic = el("select", { title: "Icona de la pestanya" });
+    ic.appendChild(el("option", { value: "" }, "(sense icona)"));
+    for (const k of (state.icons || [])) {
+      ic.appendChild(el("option", Object.assign({ value: k }, k === p.icon ? { selected: "selected" } : {}), k));
+    }
+    ic.addEventListener("change", () => { p.icon = ic.value; renderPreview(); });
+
+    const ly = el("select", { title: "Que mostra aquesta pantalla" });
+    [["status", "Gadgets + botons"], ["buttons", "Nomes botons"],
+     ["gauges", "Gauges circulars"], ["graph", "Grafics (historial)"],
+     ["clock", "Rellotge + meteo"],
+     ["numpad", "Teclat numeric"], ["launcher", "Launcher (apps obertes)"]].forEach(([v, l]) => {
+      ly.appendChild(el("option", Object.assign({ value: v }, v === p.layout ? { selected: "selected" } : {}), l));
+    });
+    ly.addEventListener("change", () => { p.layout = ly.value; syncWidgets(); renderAll(); });
+
+    box.appendChild(el("div", { class: "row" + (sel ? " sel" : "") },
+      el("button", { class: "icon ghost", title: "Edita aquesta pantalla",
+                     onclick: () => { curPage = i; syncWidgets(); renderAll(); } }, sel ? "●" : "○"),
+      nm, ic, ly,
+      el("button", { class: "icon ghost", title: "Puja", onclick: () => movePage(i, -1) }, "▲"),
+      el("button", { class: "icon ghost", title: "Baixa", onclick: () => movePage(i, +1) }, "▼"),
+      el("button", { class: "icon ghost", title: "Duplica", onclick: () => dupPage(i) }, "⧉"),
+      el("button", { class: "icon ghost", title: "Treu", onclick: () => delPage(i) }, "✕")
+    ));
+  });
+}
+
+function renderWidgets() {
+  const box = document.getElementById("widgets");
+  box.innerHTML = "";
+  const page = curPg();
+  const isStatus = (page.layout === "status");
+  document.getElementById("gadgetHint").textContent = isStatus
+    ? "Aquesta pantalla mostra aquests gadgets a dalt dels botons:"
+    : "Aquesta pantalla nomes mostra botons. Canvia la disposicio a \"Gadgets + botons\" per fer servir gadgets.";
+
+  uiWidgets.forEach((w, i) => {
+    const cb = el("input", Object.assign({ type: "checkbox" }, w.enabled ? { checked: "checked" } : {}));
+    cb.addEventListener("change", () => {
+      w.enabled = cb.checked;
+      page.widgets = uiWidgets.filter(x => x.enabled).map(x => x.id);
+      renderAll();
+    });
+    box.appendChild(el("div", { class: "row" + (w.enabled && isStatus ? "" : " dim") },
+      cb,
+      el("span", { class: "name" }, WIDGET_LABELS[w.id] || w.id),
+      el("button", { class: "icon ghost", title: "Puja", onclick: () => move(uiWidgets, i, -1) }, "▲"),
+      el("button", { class: "icon ghost", title: "Baixa", onclick: () => move(uiWidgets, i, +1) }, "▼")
+    ));
+  });
+}
+
+function move(arr, i, d) {
+  const j = i + d;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  if (arr === uiWidgets) curPg().widgets = uiWidgets.filter(x => x.enabled).map(x => x.id);
+  renderAll();
+}
+
+function testAction(b) {
+  const body = { id: b.id };
+  if (String(b.id || "").startsWith("custom:")) body.cmd = b.cmd || "";
+  api("/api/test", { method: "POST", headers: { "Content-Type": "application/json" },
+                     body: JSON.stringify(body) }).then(poll);
+}
+
+function renderQuickAdd() {
+  const box = document.getElementById("quickAdd");
+  box.innerHTML = "";
+  for (const [id, lbl] of Object.entries(state.actions || {})) {
+    const short = ACTION_SHORT[id] || id;
+    box.appendChild(el("button", {
+      class: "chip",
+      title: lbl + "  ->  boto \"" + short + "\"",
+      onclick: () => {
+        curPg().buttons.push({ id, label: short, icon: "", keys: "",
+                               enabled: true, customLabel: false, customKeys: false });
+        renderAll();
+      }
+    }, "+ " + short));
+  }
+}
+
+/* --- Arrossegar i deixar anar (drag & drop) ------------------------------ */
+let dragBtnIdx = -1;      // index del boto que s'esta arrossegant
+let dragIcon = null;      // nom de la icona que s'esta arrossegant
+
+function netejaMarques() {
+  document.querySelectorAll(".row.dropbefore,.row.dropafter,.row.dragging")
+    .forEach(r => r.classList.remove("dropbefore", "dropafter", "dragging"));
+}
+
+/* Hi ha canvis a la configuracio que encara no s'han desat ni enviat. */
+function marcaCanvis() {
+  const pill = document.getElementById("savePill");
+  pill.textContent = "● canvis sense desar";
+  pill.style.color = "var(--warn)";
+  document.getElementById("btnSave").classList.add("pendent");
+}
+
+function netejaCanvis() {
+  document.getElementById("btnSave").classList.remove("pendent");
+}
+
+/* Paleta d'icones: s'arrossega una icona sobre un boto i se li assigna. */
+function renderIconPalette() {
+  const box = document.getElementById("iconPalette");
+  box.innerHTML = "";
+  const icons = state.icons || [];
+  if (!icons.length) {
+    box.appendChild(el("span", { class: "hint" },
+      "Encara no hi ha icones a la placa (puja'n mes avall)."));
+    return;
+  }
+  box.appendChild(el("span", { class: "hint" }, "icones →"));
+  for (const k of icons) {
+    const img = el("img", { src: "/icons/" + k + ".png", title: k, draggable: "true" });
+    img.addEventListener("dragstart", (e) => {
+      dragIcon = k;
+      dragBtnIdx = -1;
+      e.dataTransfer.effectAllowed = "copy";
+      e.dataTransfer.setData("text/plain", "icon:" + k);
+    });
+    img.addEventListener("dragend", () => { dragIcon = null; netejaMarques(); });
+    box.appendChild(img);
+  }
+}
+
+function renderButtons() {
+  const box = document.getElementById("buttons");
+  box.innerHTML = "";
+  const page = curPg();
+
+  page.buttons.forEach((b, i) => {
+    const isCustom = String(b.id || "").startsWith("custom:");
+
+    const cb = el("input", Object.assign({ type: "checkbox" }, b.enabled ? { checked: "checked" } : {}));
+    cb.addEventListener("change", () => { b.enabled = cb.checked; renderAll(); });
+
+    const label = el("input", { type: "text", value: b.label || "", maxlength: "12",
+                                style: "width:78px", title: "Text del boto (max. 12 caracters)" });
+    label.addEventListener("input", () => { b.label = label.value; b.customLabel = true; renderPreview(); });
+
+    const icoImg = el("img", { class: "ico", src: b.icon ? ("/icons/" + b.icon + ".png") : "",
+                               style: b.icon ? "" : "display:none" });
+    const iconSel = el("select", { title: "Icona del boto" });
+    iconSel.appendChild(el("option", { value: "" }, "(sense icona)"));
+    for (const k of (state.icons || [])) {
+      iconSel.appendChild(el("option", Object.assign({ value: k }, k === b.icon ? { selected: "selected" } : {}), k));
+    }
+    iconSel.addEventListener("change", () => {
+      b.icon = iconSel.value;
+      if (b.icon) { icoImg.src = "/icons/" + b.icon + ".png"; icoImg.style.display = ""; }
+      else { icoImg.style.display = "none"; }
+      renderPreview();
+    });
+
+    const sel = el("select");
+    for (const [id, lbl] of Object.entries(state.actions || {})) {
+      sel.appendChild(el("option", Object.assign({ value: id }, id === b.id ? { selected: "selected" } : {}), lbl));
+    }
+    sel.appendChild(el("option", Object.assign({ value: "__custom" }, isCustom ? { selected: "selected" } : {}), "Personalitzat..."));
+    sel.addEventListener("change", () => {
+      if (sel.value === "__custom") {
+        if (!isCustom) b.id = "custom:" + (customSeq++);
+        b.customKeys = true;
+      } else {
+        b.id = sel.value;
+        b.cmd = "";
+        if (!b.customLabel) b.label = ACTION_SHORT[b.id] || b.id;
+        if (!b.customKeys) b.keys = (state.actionKeys || {})[b.id] || "";
+      }
+      renderAll();
+    });
+
+    const keysIn = el("input", { type: "text", value: b.keys || "", maxlength: "23",
+                                 style: "width:100px", placeholder: "(tecles BLE)",
+                                 title: "Tecles que envia la placa per Bluetooth (p.ex. cmd+c). Buit = comanda al Mac." });
+    keysIn.addEventListener("input", () => { b.keys = keysIn.value.trim(); b.customKeys = true; });
+
+    const kids = [cb, label, icoImg, iconSel, sel, keysIn];
+    if (isCustom) {
+      const cmd = el("input", { type: "text", class: "cmd", value: b.cmd || "",
+                                placeholder: "ordre de shell...", style: "flex:1;min-width:110px" });
+      cmd.addEventListener("input", () => { b.cmd = cmd.value; });
+      kids.push(cmd);
+    }
+    kids.push(el("button", { class: "icon ghost", title: "Prova", onclick: () => testAction(b) }, "▶"));
+    kids.push(el("button", { class: "icon ghost", title: "Puja", onclick: () => moveBtn(i, -1) }, "▲"));
+    kids.push(el("button", { class: "icon ghost", title: "Baixa", onclick: () => moveBtn(i, +1) }, "▼"));
+    kids.push(el("button", { class: "icon ghost", title: "Treu",
+                             onclick: () => { page.buttons.splice(i, 1); renderAll(); marcaCanvis(); } }, "✕"));
+
+    /* Fila: es pot arrossegar pel símbol ⠿ i s'hi poden deixar anar icones. */
+    const row = el("div", { class: "row" + (b.enabled ? "" : " dim") });
+    const grip = el("span", { class: "grip", draggable: "true",
+                              title: "Arrossega per moure el boto" }, "⠿");
+    grip.addEventListener("dragstart", (e) => {
+      dragBtnIdx = i;
+      dragIcon = null;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", "btn:" + i);
+      row.classList.add("dragging");
+    });
+    grip.addEventListener("dragend", () => { dragBtnIdx = -1; netejaMarques(); });
+    row.appendChild(grip);
+    kids.forEach(k => row.appendChild(k));
+
+    row.addEventListener("dragover", (e) => {
+      if (dragIcon === null && dragBtnIdx < 0) return;
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height / 2;
+      netejaMarques();
+      row.classList.add(before ? "dropbefore" : "dropafter");
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("dropbefore", "dropafter");
+    });
+    row.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const r = row.getBoundingClientRect();
+      const before = (e.clientY - r.top) < r.height / 2;
+      const pg = curPg();
+
+      if (dragIcon !== null) {                  /* una icona sobre el boto */
+        pg.buttons[i].icon = dragIcon;
+        dragIcon = null;
+        netejaMarques();
+        renderAll();
+        marcaCanvis();
+        return;
+      }
+      if (dragBtnIdx >= 0 && dragBtnIdx !== i) { /* reordenar */
+        const arr = pg.buttons;
+        const [moved] = arr.splice(dragBtnIdx, 1);
+        let dest = i + (before ? 0 : 1);
+        if (dragBtnIdx < dest) dest--;
+        arr.splice(Math.max(0, Math.min(arr.length, dest)), 0, moved);
+        marcaCanvis();
+      }
+      dragBtnIdx = -1;
+      netejaMarques();
+      renderAll();
+    });
+
+    box.appendChild(row);
+  });
+}
+
+function moveBtn(i, d) {
+  const arr = curPg().buttons;
+  const j = i + d;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  renderAll();
+  marcaCanvis();
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function previewValue(id) {
+  const s = state.stats || {};
+  if (id === "cpu" || id === "mem" || id === "disk") return s[id] != null ? Math.round(s[id]) + "%" : "--";
+  if (id === "bat") return s.bat != null ? Math.round(s.bat) + "%" + (s.chg ? "+" : "") : "--";
+  if (id === "net") return "v" + Number(s.dn || 0).toFixed(1) + " ^" + Number(s.up || 0).toFixed(1);
+  if (id === "load") return Number(s.load || 0).toFixed(2);
+  if (id === "time") return s.time || "--:--";
+  if (id === "host") return s.host || "?";
+  if (id === "uptime") {
+    const sec = s.uptime || 0;
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    return d > 0 ? d + "d" + h + "h" : h + "h" + m + "m";
+  }
+  return "";
+}
+
+function weatherIconJs() {
+  const s = state.stats || {};
+  const c = s.wc || 0;
+  const day = (s.isd !== 0);
+  if (c <= 2) return day ? "sun" : "moon";
+  if (c === 3) return "cloud";
+  if (c >= 45 && c <= 48) return "fog";
+  if (c >= 95) return "storm";
+  if (c >= 71 && c <= 86) return "snow";
+  if (c >= 51 && c <= 82) return "rain";
+  return "cloud";
+}
+
+function previewPct(id) {
+  if (["net", "load", "uptime", "time", "host"].includes(id)) return -1;
+  const v = (state.stats || {})[id];
+  if (v == null) return -1;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+function renderPreview() {
+  const box = document.getElementById("preview");
+  box.innerHTML = "";
+  const horiz = (cfg.orientation === "h");
+  const W = horiz ? 480 : 320;
+  const H = horiz ? 320 : 480;
+  const S = horiz ? 0.62 : 0.5;
+  const page = curPg();
+  const tabH = (cfg.pages.length > 1) ? 34 : 0;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  canvas.style.width = (W * S) + "px";
+  canvas.style.height = (H * S) + "px";
+  canvas.style.border = "1px solid #2c3746";
+  canvas.style.borderRadius = "10px";
+  const g = canvas.getContext("2d");
+  g.fillStyle = "#101a24"; g.fillRect(0, 0, W, H);
+  g.font = "15px -apple-system, sans-serif";
+
+  g.fillStyle = "#1d2836"; g.fillRect(0, 0, W, 30);
+  g.fillStyle = "#e8eef7"; g.fillText((state.stats || {}).time || "--:--", 6, 21);
+  g.fillStyle = "#8b9bb0"; g.textAlign = "center";
+  g.fillText((state.stats || {}).host || "Mac", W / 2, 21);
+  g.textAlign = "right";
+  g.fillStyle = state.connected ? "#35d07f" : "#ff5b6a";
+  g.fillText(state.connected ? "LINK" : "NO LINK", W - 6, 21);
+  g.textAlign = "left";
+
+  let y = 30;
+  const isNumpad = page.layout === "numpad";
+  const isGauges = page.layout === "gauges";
+  const isClock  = page.layout === "clock";
+  const bottomBtns = isGauges || isClock;
+  const btnArea = bottomBtns ? 62 : 0;
+  const contentBot = H - tabH - btnArea;
+
+  if (isGauges) {
+    let gs = (page.widgets || []).filter(w => ["cpu", "mem", "disk", "bat"].includes(w)).slice(0, 4);
+    if (!gs.length) gs = ["cpu", "mem"];
+    const gcols = gs.length > 1 ? 2 : 1;
+    const grows = Math.ceil(gs.length / gcols);
+    const cw = W / gcols, ch = (contentBot - 30) / grows;
+    const r = Math.max(18, Math.min(58, Math.min(cw, ch) / 2 - 14));
+    gs.forEach((wid, i) => {
+      const cx = (i % gcols) * cw + cw / 2;
+      const cy = 30 + Math.floor(i / gcols) * ch + ch / 2 - 6;
+      const pct = Math.max(0, previewPct(wid));
+      g.fillStyle = "#1d2836"; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+      g.lineWidth = 7;
+      g.strokeStyle = "#2c3746"; g.beginPath();
+      g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 2.25); g.stroke();
+      g.strokeStyle = pct >= 90 ? "#ff5b6a" : pct >= 70 ? "#ffcc4d" : "#35d07f";
+      g.beginPath(); g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * pct / 100); g.stroke();
+      g.lineWidth = 1;
+      g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "16px -apple-system,sans-serif";
+      g.fillText(pct + "%", cx, cy + 5);
+      g.fillStyle = "#8b9bb0"; g.font = "12px -apple-system,sans-serif";
+      g.fillText(wid.toUpperCase(), cx, cy + r + 13);
+      g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
+    });
+  } else if (isClock) {
+    const s = state.stats || {};
+    g.textAlign = "center";
+    g.fillStyle = "#e8eef7"; g.font = "44px -apple-system, sans-serif";
+    g.fillText(s.time || "--:--", W / 2, 30 + (contentBot - 30) / 3);
+    g.font = "17px -apple-system, sans-serif"; g.fillStyle = "#8b9bb0";
+    g.fillText(((s.wd || "") + "  " + (s.date || "")).trim(), W / 2, 30 + (contentBot - 30) / 3 + 32);
+    g.textAlign = "left"; g.font = "15px -apple-system, sans-serif";
+    const im = getIconImg(weatherIconJs());
+    const isz = 44;
+    const iy = 30 + (contentBot - 30) * 2 / 3;
+    if (im && im.complete && im.naturalWidth) g.drawImage(im, W / 2 - isz / 2, iy - isz / 2, isz, isz);
+    g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "18px -apple-system,sans-serif";
+    g.fillText(Math.round(s.temp || 0) + " C", W / 2, iy + isz / 2 + 20);
+    g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
+  } else if (page.layout === "status") {
+    for (const w of (page.widgets || [])) {
+      g.fillStyle = "#1d2836"; roundRect(g, 6, y + 2, W - 12, 30, 6); g.fill();
+      g.fillStyle = "#8b9bb0"; g.fillText(w.toUpperCase(), 14, y + 20);
+      g.fillStyle = "#e8eef7"; g.textAlign = "right";
+      g.fillText(previewValue(w), W - 14, y + 20);
+      g.textAlign = "left";
+      const pct = previewPct(w);
+      if (pct >= 0) {
+        g.fillStyle = "#2c3746"; g.fillRect(14, y + 24, W - 28, 5);
+        g.fillStyle = pct >= 90 ? "#ff5b6a" : pct >= 70 ? "#ffcc4d" : "#35d07f";
+        g.fillRect(14, y + 24, (W - 28) * pct / 100, 5);
+      }
+      y += 34;
+    }
+  }
+
+  let btns, cols;
+  if (isNumpad) {
+    btns = ["7", "8", "9", "-", "4", "5", "6", "+", "1", "2", "3", "*", "DEL", "0", ".", "OK"]
+      .map(l => ({ label: l, icon: "", enabled: true }));
+    cols = 4;
+  } else {
+    btns = (page.buttons || []).filter(b => b.enabled);
+    cols = 3;
+  }
+  const gap = 6, pad = 6;
+  const cellW = (W - pad * (cols + 1)) / cols;
+  const top = bottomBtns ? (contentBot + pad) : (y + pad);
+  const avail = (bottomBtns ? btnArea : (H - tabH - top - pad)) - pad;
+  const rowsN = Math.max(1, Math.ceil(btns.length / cols));
+  let cellH = (avail - (rowsN - 1) * gap) / rowsN;
+  cellH = Math.min(bottomBtns ? 50 : 90, Math.max(24, cellH));
+  btns.forEach((b, i) => {
+    const cx = pad + (i % cols) * (cellW + gap);
+    const cy = top + Math.floor(i / cols) * (cellH + gap);
+    g.fillStyle = "#26333f"; roundRect(g, cx, cy, cellW, cellH, 8); g.fill();
+    g.strokeStyle = "#3a4756"; g.stroke();
+    const img = getIconImg(b.icon);
+    const isz = Math.min(30, Math.max(10, cellH - 20));
+    if (img && img.complete && img.naturalWidth) {
+      g.drawImage(img, cx + cellW / 2 - isz / 2, cy + 3, isz, isz);
+      g.fillStyle = "#e8eef7"; g.textAlign = "center";
+      g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH - 4);
+    } else {
+      g.fillStyle = "#e8eef7"; g.textAlign = "center";
+      g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH / 2 + 5);
+    }
+    g.textAlign = "left";
+  });
+
+  if (tabH) {
+    const ty = H - tabH;
+    g.fillStyle = "#1d2836"; g.fillRect(0, ty, W, tabH);
+    const tw = W / cfg.pages.length;
+    cfg.pages.forEach((p, i) => {
+      if (i === curPage) {
+        g.fillStyle = "#05bfbf"; roundRect(g, i * tw + 2, ty + 3, tw - 4, tabH - 6, 6); g.fill();
+      }
+      g.fillStyle = (i === curPage) ? "#e8eef7" : "#8b9bb0";
+      g.textAlign = "center";
+      g.fillText((p.name || "?").slice(0, Math.max(1, Math.floor((tw - 10) / 6))), i * tw + tw / 2, ty + tabH / 2 + 5);
+      g.textAlign = "left";
+    });
+  }
+
+  box.appendChild(canvas);
+}
+
+function renderStats() {
+  const s = state.stats || {};
+  const pct = (v) => (v != null ? Math.round(v) + "%" : "--");
+
+  /* Corrent: el Mac ens diu si esta endollat amb 'chg' (1 = si, 0 = no,
+   * -1 = no ho sabem). Ho ensenyem amb un puntet de color, que es veu d'un
+   * cop d'ull. */
+  const chg = (s.chg === undefined || s.chg === null) ? -1 : s.chg;
+  const corrent = chg === 1 ? "Endollat" : (chg === 0 ? "Amb bateria" : "--");
+  const correntColor = chg === 1 ? "var(--ok)" : "var(--dim)";
+
+  const items = [
+    ["CPU", pct(s.cpu)],
+    ["RAM", pct(s.mem)],
+    ["Disc", pct(s.disk)],
+    ["Bateria", pct(s.bat)],
+    ["Corrent", corrent, correntColor],
+    ["Baixada", s.dn != null ? Number(s.dn).toFixed(2) + " MB/s" : "--"],
+    ["Pujada", s.up != null ? Number(s.up).toFixed(2) + " MB/s" : "--"],
+    ["Càrrega", s.load != null ? Number(s.load).toFixed(2) : "--"],
+    ["Inactiu", s.idl != null ? fmtSegons(s.idl) : "--"],
+  ];
+
+  const box = document.getElementById("stats");
+  box.innerHTML = "";
+  for (const [k, v, col] of items) {
+    const b = el("b", {}, v);
+    if (col) b.style.color = col;
+    box.appendChild(el("div", { class: "stat" }, el("span", {}, k), b));
+  }
+}
+
+/* "95" -> "1m 35s" */
+function fmtSegons(seg) {
+  seg = Math.max(0, Math.round(seg));
+  if (seg < 60) return seg + " s";
+  const m = Math.floor(seg / 60);
+  if (m < 60) return m + "m " + (seg % 60) + "s";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+
+function renderIconList() {
+  const box = document.getElementById("iconList");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const ic of (state.icons || [])) {
+    const img = el("img", { src: "/icons/" + ic + ".png",
+                            style: "width:16px;height:16px;vertical-align:-3px;object-fit:contain" });
+    box.appendChild(el("button", { class: "chip", title: "Esborrar la icona '" + ic + "'",
+                                   onclick: () => deleteIcon(ic) }, img, " " + ic));
+  }
+}
+
+function renderNotifs() {
+  const box = document.getElementById("notifList");
+  if (!box) return;
+  box.innerHTML = "";
+  const ns = state.notifs || [];
+  if (!ns.length) {
+    box.appendChild(el("p", { class: "muted" },
+      "Encara no n'hi ha cap. Quan el Mac en rebi una, sortira aqui i a la pantalla."));
+  }
+  for (const n of ns.slice(0, 6)) {
+    const row = el("div", { class: "row" });
+    row.appendChild(el("span", { class: "name", style: "flex:0 0 96px" }, n.app || "Mac"));
+    row.appendChild(el("span", { style: "flex:3;font-size:13px" },
+      (n.title ? n.title + " · " : "") + (n.subtitle || n.body || "")));
+    row.appendChild(el("span", { class: "muted" }, n.time || ""));
+    box.appendChild(row);
+  }
+  const hint = document.getElementById("notifHint");
+  if (state.notifError) {
+    hint.textContent = "⚠️ " + state.notifError;
+    hint.style.color = "var(--warn)";
+  } else {
+    hint.textContent = "Surt un bane com el del macOS: aplicacio, titol i una linia de text.";
+    hint.style.color = "";
+  }
+}
+
+function renderApps() {
+  const now = state.appName || "";
+  const bundle = state.app || "";
+  const label = document.getElementById("appNow");
+  if (label) {
+    label.textContent = now ? (now + "   " + bundle) : "cap (o el Mac esta inactiu)";
+  }
+
+  const box = document.getElementById("appPages");
+  if (!box) return;
+  box.innerHTML = "";
+  cfg.pages.forEach((p, i) => {
+    const row = el("div", { class: "row" + (i === curPage ? " sel" : "") });
+    row.appendChild(el("span", { class: "name", style: "flex:0 0 130px" },
+      (p.name || "?") + " · " + (p.layout || "buttons")));
+
+    const inp = el("input", {
+      value: (p.apps || []).join(", "),
+      placeholder: "com.microsoft.VSCode, com.apple.Safari",
+      style: "flex:1;min-width:200px",
+      title: "Bundle ids que fan saltar la placa a aquesta pantalla",
+    });
+    inp.addEventListener("change", () => {
+      p.apps = inp.value.split(",").map(s => s.trim()).filter(Boolean);
+      inp.value = p.apps.join(", ");
+      marcaCanvis();
+    });
+    row.appendChild(inp);
+
+    if (bundle) {
+      row.appendChild(el("button", { class: "chip",
+        title: "Afegeix-hi l'aplicacio que estas fent servir ara",
+        onclick: () => {
+          if (!Array.isArray(p.apps)) p.apps = [];
+          if (!p.apps.includes(bundle)) p.apps.push(bundle);
+          inp.value = p.apps.join(", ");
+          marcaCanvis();
+        } }, "+ " + (now || "app")));
+    }
+    box.appendChild(row);
+  });
+}
+
+function renderAll() {
+  renderPages();
+  renderWidgets();
+  renderQuickAdd();
+  renderIconPalette();
+  renderButtons();
+  renderPreview();
+  renderStats();
+  renderNotifs();
+  renderApps();
+}
+
+function updateHeader() {
+  document.getElementById("dot").classList.toggle("on", !!state.connected);
+  document.getElementById("connLabel").textContent =
+    state.connected ? ("connectat a " + (state.port || "")) : "desconnectat";
+  const s = state.stats || {};
+  document.getElementById("statsPill").textContent = [s.time, s.host].filter(Boolean).join(" · ");
+
+  const sel = document.getElementById("portSel");
+  const ports = state.ports || [];
+  const sig = ports.map(p => p.device).join(",");
+  if (sel.dataset.sig !== sig) {
+    sel.dataset.sig = sig;
+    sel.innerHTML = "";
+    for (const p of ports) {
+      sel.appendChild(el("option", { value: p.device }, p.device + (p.desc ? " - " + p.desc : "")));
+    }
+    if (state.port) sel.value = state.port;
+  }
+  document.getElementById("log").textContent = (state.log || []).join("\n");
+  renderIconList();
+
+  const lm = document.getElementById("linkMode");
+  if (lm && state.link) lm.value = state.link;
+  const lh = document.getElementById("linkHost");
+  if (lh && state.host && !lh.value) lh.value = state.host;
+}
+
+async function poll() {
+  const s = await api("/api/state");
+  if (s && s.config) {
+    const first = !state.actions || Object.keys(state.actions).length === 0;
+    state = s;
+    if (first) loadFromConfig(state.config);
+    updateHeader();
+    renderStats();
+    renderPreview();
+    renderNotifs();
+    renderApps();
+  }
+}
+
+async function save() {
+  cfg.orientation = document.getElementById("orientation").value;
+  // El tema pot ser un index o -1, que vol dir "segons el Mac".
+  const th = parseInt(document.getElementById("theme").value, 10);
+  cfg.theme_auto = th < 0 ? 1 : 0;
+  if (th >= 0) cfg.theme = th;
+  cfg.theme_dark = parseInt(document.getElementById("themeDark").value, 10) || 0;
+  cfg.theme_light = parseInt(document.getElementById("themeLight").value, 10) || 0;
+  cfg.standby_s = parseInt(document.getElementById("standby").value, 10) || 0;
+  cfg.idle_min = parseInt(document.getElementById("idleMin").value, 10) || 0;
+  cfg.notif_on = document.getElementById("notifOn").checked;
+  cfg.nav = document.getElementById("nav").value;
+  cfg.refresh_ms = parseInt(document.getElementById("refreshMs").value, 10) || 1000;
+  cfg.pages.forEach(p => {
+    if (!Array.isArray(p.widgets)) p.widgets = [];
+    p.apps = (p.apps || []).filter(a => String(a).trim());
+    p.buttons = (p.buttons || []).map(b => {
+      const o = { id: b.id, label: b.label || b.id, on: !!b.enabled,
+                  icon: b.icon || "", keys: b.keys || "" };
+      if (String(b.id || "").startsWith("custom:")) o.cmd = b.cmd || "";
+      return o;
+    });
+  });
+  const r = await api("/api/config", { method: "POST",
+                                       headers: { "Content-Type": "application/json" },
+                                       body: JSON.stringify({ config: cfg }) });
+  const pill = document.getElementById("savePill");
+  netejaCanvis();
+  if (!r.ok) {
+    pill.textContent = "❌ error en desar";
+    pill.style.color = "var(--bad)";
+  } else if (r.sent) {
+    pill.textContent = "✅ desat i enviat a la pantalla";
+    pill.style.color = "var(--ok)";
+  } else {
+    pill.textContent = "⚠️ desat, pero NO enviat: la placa no esta connectada";
+    pill.style.color = "var(--warn)";
+  }
+  setTimeout(() => { pill.textContent = ""; pill.style.color = ""; }, 5000);
+  poll();
+}
+
+document.getElementById("btnSave").addEventListener("click", save);
+document.getElementById("btnSend").addEventListener("click", async () => {
+  await api("/api/send", { method: "POST" });
+  poll();
+});
+document.getElementById("btnConnect").addEventListener("click", async () => {
+  const port = document.getElementById("portSel").value;
+  await api("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ port }) });
+  poll();
+});
+document.getElementById("btnDisconnect").addEventListener("click", async () => {
+  await api("/api/disconnect", { method: "POST" });
+  poll();
+});
+document.getElementById("btnAdd").addEventListener("click", () => {
+  const firstAction = Object.keys(state.actions || {})[0] || "media_play";
+  curPg().buttons.push({ id: firstAction, label: ACTION_SHORT[firstAction] || firstAction,
+                         icon: "", keys: "", enabled: true, customLabel: false, customKeys: false });
+  renderAll();
+});
+document.getElementById("btnAddPage").addEventListener("click", () => {
+  if (cfg.pages.length >= 8) { alert("Maxim 8 pantalles"); return; }
+  cfg.pages.push({ name: "Pantalla " + (cfg.pages.length + 1), icon: "", layout: "buttons",
+                   widgets: [], buttons: [] });
+  curPage = cfg.pages.length - 1;
+  syncWidgets();
+  renderAll();
+});
+document.getElementById("orientation").addEventListener("change", renderPreview);
+document.getElementById("theme").addEventListener("change", () => {
+  toggleAutoThemes();
+  renderPreview();
+});
+document.getElementById("refreshMs").addEventListener("change", () => {
+  cfg.refresh_ms = parseInt(document.getElementById("refreshMs").value, 10) || 1000;
+});
+
+/* Notificacions: activar/aturar i una de prova. */
+document.getElementById("notifOn").addEventListener("change", async (ev) => {
+  cfg.notif_on = ev.target.checked;
+  await api("/api/notifications", { method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ on: ev.target.checked }) });
+});
+document.getElementById("btnTestNotif").addEventListener("click", async () => {
+  const s = state.stats || {};
+  await api("/api/notify", { method: "POST",
+                             headers: { "Content-Type": "application/json" },
+                             body: JSON.stringify({
+                               app: "Mac Panel",
+                               title: "Avis de prova",
+                               body: "Aixi es veura una notificacio de " + (s.host || "Mac") }) });
+  poll();
+});
+
+document.getElementById("iconFile").addEventListener("change", (ev) => {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    iconFileData = rd.result;
+    const nm = f.name.replace(/\.[^.]+$/, "");
+    document.getElementById("iconName").value =
+      nm.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 19);
+    const prev = document.getElementById("iconPreview");
+    prev.src = iconFileData;
+    prev.style.display = "";
+  };
+  rd.readAsDataURL(f);
+});
+
+document.getElementById("btnIconUpload").addEventListener("click", async () => {
+  const st = document.getElementById("iconStatus");
+  if (!iconFileData) {
+    st.textContent = "tria primer un fitxer PNG";
+    st.style.color = "var(--warn)";
+    return;
+  }
+  const name = document.getElementById("iconName").value.trim();
+  const png = iconFileData.split(",")[1] || "";
+  st.textContent = "pujant a la pantalla...";
+  st.style.color = "var(--dim)";
+  const r = await api("/api/icon", { method: "POST",
+                                     headers: { "Content-Type": "application/json" },
+                                     body: JSON.stringify({ name, png }) });
+  st.textContent = r.ok ? ("✅ icona '" + name + "' pujada") : ("❌ " + (r.error || "error"));
+  st.style.color = r.ok ? "var(--ok)" : "var(--bad)";
+  setTimeout(() => { st.textContent = ""; }, 5000);
+  poll();
+});
+
+async function deleteIcon(name) {
+  if (!confirm("Esborrar la icona '" + name + "' de la placa?")) return;
+  await api("/api/icon/delete", { method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ name }) });
+  poll();
+}
+
+async function boardCmd(cmd) {
+  const st = document.getElementById("boardStatus");
+  const r = await api("/api/board", { method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ cmd }) });
+  st.textContent = r.ok ? ("✅ " + cmd) : "❌ no s'ha pogut enviar";
+  st.style.color = r.ok ? "var(--ok)" : "var(--bad)";
+  setTimeout(() => { st.textContent = ""; }, 4000);
+  poll();
+}
+
+document.getElementById("btnBl").addEventListener("click", () => {
+  boardCmd("bl " + document.getElementById("blRange").value);
+});
+document.getElementById("blRange").addEventListener("input", () => {
+  document.getElementById("blVal").textContent = document.getElementById("blRange").value + "%";
+});
+document.getElementById("btnCal").addEventListener("click", () => {
+  if (confirm("Calibrar el tactil? Segueix les instruccions a la pantalla de la placa.")) boardCmd("cal");
+});
+document.getElementById("btnResetCfg").addEventListener("click", () => {
+  if (confirm("Tornar a la configuracio per defecte de la placa?")) boardCmd("reset");
+});
+document.getElementById("btnRestart").addEventListener("click", () => {
+  if (confirm("Reiniciar la placa?")) boardCmd("restart");
+});
+
+document.getElementById("btnNotify").addEventListener("click", async () => {
+  const inp = document.getElementById("notifyText");
+  const st = document.getElementById("notifyStatus");
+  const text = inp.value.trim();
+  if (!text) return;
+  const r = await api("/api/notify", { method: "POST",
+                                       headers: { "Content-Type": "application/json" },
+                                       body: JSON.stringify({ text }) });
+  st.textContent = r.ok ? "✅ avis enviat" : "❌ no s'ha pogut enviar";
+  st.style.color = r.ok ? "var(--ok)" : "var(--bad)";
+  setTimeout(() => { st.textContent = ""; }, 3000);
+  if (r.ok) inp.value = "";
+  poll();
+});
+
+document.getElementById("btnSendWifi").addEventListener("click", async () => {
+  const st = document.getElementById("wifiStatus");
+  const ssid = document.getElementById("wifiSsid").value.trim();
+  const pass = document.getElementById("wifiPass").value;
+  if (!ssid) { st.textContent = "escriu el nom de la xarxa"; st.style.color = "var(--warn)"; return; }
+  st.textContent = "enviant..."; st.style.color = "var(--dim)";
+  const r = await api("/api/wifi", { method: "POST",
+                                     headers: { "Content-Type": "application/json" },
+                                     body: JSON.stringify({ ssid, pass }) });
+  st.textContent = r.ok ? "✅ credencials enviades (mira el registre)" : "❌ cal estar connectat";
+  st.style.color = r.ok ? "var(--ok)" : "var(--bad)";
+  setTimeout(() => { st.textContent = ""; }, 6000);
+  poll();
+});
+
+document.getElementById("btnApplyLink").addEventListener("click", async () => {
+  const st = document.getElementById("linkStatus");
+  const link = document.getElementById("linkMode").value;
+  const host = document.getElementById("linkHost").value.trim();
+  st.textContent = "canviant..."; st.style.color = "var(--dim)";
+  const r = await api("/api/link", { method: "POST",
+                                     headers: { "Content-Type": "application/json" },
+                                     body: JSON.stringify({ link, host }) });
+  st.textContent = r.connected ? ("✅ " + link + " connectat") : ("❌ no connectat (" + link + ")");
+  st.style.color = r.connected ? "var(--ok)" : "var(--bad)";
+  setTimeout(() => { st.textContent = ""; }, 6000);
+  poll();
+});
+
+/* --- Apartats: plegar, arrossegar i redimensionar ------------------------- *
+ * El panell te molts apartats i queda molt llarg. Amb aixo es pot plegar el
+ * que no es fa servir, moure'ls d'ordre arrossegant la nansa ⠿ de la
+ * capcalera, i canviar l'amplada de les dues columnes. Tot queda desat al
+ * navegador. */
+const SEC_KEY = "macpanel.seccions.v1";
+let secOrdre = [];
+let secOrdreOriginal = [];
+let secPlegats = {};
+let secDragId = null;
+let splitFrac = 1;
+
+function secsTotes() {
+  return [...document.querySelectorAll("main > section")];
+}
+
+function netejaMarquesSec() {
+  secsTotes().forEach(s =>
+    s.classList.remove("arrossegant", "dropamunt", "dropavall"));
+}
+
+function desaSecs() {
+  try {
+    localStorage.setItem(SEC_KEY, JSON.stringify({
+      ordre: secOrdre, plegats: secPlegats, cols: splitFrac,
+    }));
+  } catch (e) { /* pot estar bloquejat: no passa res */ }
+}
+
+function aplicaSecs() {
+  const main = document.querySelector("main");
+  const perId = {};
+  secsTotes().forEach(s => { perId[s.id] = s; });
+
+  /* Primer els que tenen lloc assignat, despres la resta (nous). */
+  secOrdre.forEach(id => { if (perId[id]) main.appendChild(perId[id]); });
+  secsTotes().forEach(s => {
+    if (!secOrdre.includes(s.id)) main.appendChild(s);
+  });
+
+  secsTotes().forEach(s => s.classList.toggle("plegat", !!secPlegats[s.id]));
+  aplicaCols();
+}
+
+function toggleSec(id) {
+  secPlegats[id] = !secPlegats[id];
+  aplicaSecs();
+  desaSecs();
+}
+
+function aplicaCols() {
+  const main = document.querySelector("main");
+  if (splitFrac === 0) {
+    main.style.gridTemplateColumns = "1fr";
+  } else {
+    main.style.gridTemplateColumns =
+      splitFrac + "fr " + (1 - splitFrac).toFixed(2) + "fr";
+  }
+  posaSplitter();
+}
+
+function posaSplitter() {
+  const sp = document.getElementById("splitter");
+  const main = document.querySelector("main");
+  if (!sp || !main) return;
+  const dues = window.matchMedia("(min-width: 901px)").matches;
+  if (!dues || splitFrac === 0) {
+    sp.style.display = "none";
+    return;
+  }
+  const r = main.getBoundingClientRect();
+  sp.style.display = "block";
+  sp.style.left = (r.left + r.width * splitFrac - 5) + "px";
+  sp.style.top = r.top + "px";
+  sp.style.height = r.height + "px";
+}
+
+/* Si s'arrossega la nansa a un lloc que no es cap valor del desplegable, n'hi
+ * afegim un de temporal perque el desplegable no digui una cosa falsa. */
+function marcaColsCustom() {
+  const sel = document.getElementById("cols");
+  const val = String(splitFrac);
+  let op = sel.querySelector("option[data-custom]");
+  if (!op) {
+    op = el("option", { "data-custom": "1" });
+    sel.appendChild(op);
+  }
+  op.value = val;
+  op.textContent = Math.round(splitFrac * 100) + " / " +
+                   Math.round((1 - splitFrac) * 100);
+  sel.value = val;
+}
+
+function initSplitter() {
+  const sp = el("div", { id: "splitter" });
+  document.body.appendChild(sp);
+
+  sp.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    sp.classList.add("actiu");
+    sp.setPointerCapture(ev.pointerId);
+    const main = document.querySelector("main");
+    const r = main.getBoundingClientRect();
+    const mou = (e) => {
+      let f = (e.clientX - r.left) / r.width;
+      f = Math.max(0.2, Math.min(0.8, f));
+      splitFrac = Math.round(f * 100) / 100;
+      marcaColsCustom();
+      aplicaCols();
+    };
+    const fi = () => {
+      sp.classList.remove("actiu");
+      window.removeEventListener("pointermove", mou);
+      window.removeEventListener("pointerup", fi);
+      desaSecs();
+    };
+    window.addEventListener("pointermove", mou);
+    window.addEventListener("pointerup", fi);
+  });
+
+  window.addEventListener("resize", posaSplitter);
+  window.addEventListener("scroll", posaSplitter, { passive: true });
+}
+
+function initSecs() {
+  const secs = secsTotes();
+  secs.forEach((s, i) => {
+    if (!s.id) s.id = "sec" + i;
+    const h2 = s.querySelector("h2");
+    if (!h2) return;
+
+    h2.prepend(el("span", { class: "chev" }, "▾"));
+
+    const grip = el("span", { class: "sec-grip", draggable: "true",
+                              title: "Arrossega per moure aquest apartat" }, "⠿");
+    grip.addEventListener("dragstart", (e) => {
+      secDragId = s.id;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", "sec:" + s.id);
+      s.classList.add("arrossegant");
+    });
+    grip.addEventListener("dragend", () => {
+      secDragId = null;
+      netejaMarquesSec();
+    });
+    h2.appendChild(grip);
+
+    h2.addEventListener("click", (e) => {
+      if (e.target === grip) return;      /* la nansa no plega */
+      toggleSec(s.id);
+    });
+
+    s.addEventListener("dragover", (e) => {
+      if (secDragId === null || secDragId === s.id) return;
+      e.preventDefault();
+      const r = s.getBoundingClientRect();
+      const abans = (e.clientY - r.top) < r.height / 2;
+      netejaMarquesSec();
+      s.classList.add(abans ? "dropamunt" : "dropavall");
+    });
+    s.addEventListener("dragleave", () => {
+      s.classList.remove("dropamunt", "dropavall");
+    });
+    s.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (secDragId === null || secDragId === s.id) return;
+      const r = s.getBoundingClientRect();
+      const abans = (e.clientY - r.top) < r.height / 2;
+      const ordre = secsTotes().map(x => x.id);
+      const from = ordre.indexOf(secDragId);
+      if (from < 0) return;
+      ordre.splice(from, 1);
+      let to = ordre.indexOf(s.id);
+      if (to < 0) to = ordre.length;
+      ordre.splice(abans ? to : to + 1, 0, secDragId);
+      secOrdre = ordre;
+      secDragId = null;
+      netejaMarquesSec();
+      aplicaSecs();
+      desaSecs();
+    });
+  });
+
+  secOrdreOriginal = secs.map(s => s.id);
+}
+
+function carregaSecs() {
+  try {
+    const d = JSON.parse(localStorage.getItem(SEC_KEY) || "{}");
+    if (Array.isArray(d.ordre)) secOrdre = d.ordre;
+    if (d.plegats) secPlegats = d.plegats;
+    if (typeof d.cols === "number") splitFrac = d.cols;
+  } catch (e) { /* res */ }
+  const sel = document.getElementById("cols");
+  const val = String(splitFrac);
+  if ([...sel.options].some(o => o.value === val)) {
+    sel.value = val;
+  } else if (splitFrac !== 1) {
+    marcaColsCustom();
+  }
+}
+
+document.getElementById("cols").addEventListener("change", (e) => {
+  splitFrac = parseFloat(e.target.value);
+  aplicaCols();
+  desaSecs();
+});
+
+document.getElementById("btnPlegar").addEventListener("click", (e) => {
+  const secs = secsTotes();
+  const algunPlegat = secs.some(s => secPlegats[s.id]);
+  secs.forEach(s => { secPlegats[s.id] = !algunPlegat; });
+  aplicaSecs();
+  desaSecs();
+  e.target.textContent = algunPlegat ? "Plegar-ho tot" : "Desplegar-ho tot";
+});
+
+document.getElementById("btnOrdre").addEventListener("click", () => {
+  secOrdre = secOrdreOriginal.slice();
+  aplicaSecs();
+  desaSecs();
+});
+
+initSecs();
+initSplitter();
+carregaSecs();
+aplicaSecs();
+
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>

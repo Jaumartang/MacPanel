@@ -1,0 +1,58 @@
+# Icones que son ICONES D'APP (no simbols).
+#
+# Una icona d'app es un QUADRE ARRODONIT amb fons propi (Finder, Notes, VS Code,
+# Chrome...): el dibuix arriba fins a les vores. Si el conversor li treu el fons
+# queda un tros d'icona (Notes nomes la tira groga, TextEdit nomes la ploma).
+#
+# Les icones d'aquesta llista es converteixen SENCERES i nomes se'ls arrodoneixen
+# les cantonades, com fa el macOS. La resta (simbols: wifi, volum, llum...) es
+# queden amb el fons transparent, que es com han de sortir sobre un boto.
+#
+# Per canviar-ho: afegeix o treu noms d'aquesta llista i torna a fer
+#   python3 tools/png2bin.py && python3 tools/puja-icones.py
+# Pots veure com queden amb:  python3 tools/mostra_icones.py
+
+activity_monitor
+app_store
+blender
+brave
+calendar
+chrome
+console
+corel_photopaint
+coreldraw
+davinci_resolve
+dropbox
+excel
+figma
+finder
+firefox
+google_drive
+illustrator
+indesign
+mail
+messages
+music
+notes
+notion
+onenote
+outlook
+photos
+photoshop
+powerpoint
+premiere_pro
+preview
+quicktime
+reminders
+safari
+slack
+spotify
+system_settings
+teams
+term
+terminal
+textedit
+time_machine
+vscode
+word
+zoom

@@ -1,0 +1,119 @@
+{
+  "port": "/dev/cu.usbserial-1420",
+  "refresh_ms": 1000,
+  "orientation": "v",
+  "theme": 5,
+  "theme_auto": 1,
+  "theme_dark": 0,
+  "theme_light": 1,
+  "standby_s": 0,
+  "idle_min": 0,
+  "nav": "off",
+  "pages": [
+    {
+      "name": "Principal",
+      "icon": "",
+      "layout": "gauges",
+      "widgets": [
+        "cpu",
+        "mem",
+        "disk",
+        "bat",
+        "net",
+        "load",
+        "uptime",
+        "time"
+      ],
+      "buttons": [
+        {
+          "id": "app_safari",
+          "label": "Safari",
+          "on": false,
+          "icon": "safari",
+          "keys": ""
+        },
+        {
+          "id": "app_mail",
+          "label": "Mail",
+          "on": false,
+          "icon": "mail",
+          "keys": ""
+        },
+        {
+          "id": "app_calendar",
+          "label": "Calendari",
+          "on": false,
+          "icon": "calendar",
+          "keys": ""
+        },
+        {
+          "id": "app_messages",
+          "label": "Missatges",
+          "on": false,
+          "icon": "messages",
+          "keys": ""
+        },
+        {
+          "id": "app_notes",
+          "label": "Notes",
+          "on": false,
+          "icon": "notes",
+          "keys": ""
+        },
+        {
+          "id": "app_music",
+          "label": "Musica",
+          "on": false,
+          "icon": "music",
+          "keys": ""
+        },
+        {
+          "id": "app_photos",
+          "label": "Fotos",
+          "on": false,
+          "icon": "photos",
+          "keys": ""
+        },
+        {
+          "id": "app_terminal",
+          "label": "Terminal",
+          "on": false,
+          "icon": "terminal",
+          "keys": ""
+        },
+        {
+          "id": "app_finder",
+          "label": "Finder",
+          "on": false,
+          "icon": "finder",
+          "keys": ""
+        },
+        {
+          "id": "app_spotify",
+          "label": "Spotify",
+          "on": false,
+          "icon": "spotify",
+          "keys": ""
+        },
+        {
+          "id": "app_vscode",
+          "label": "VS Code",
+          "on": false,
+          "icon": "vscode",
+          "keys": ""
+        },
+        {
+          "id": "app_chrome",
+          "label": "Chrome",
+          "on": false,
+          "icon": "chrome",
+          "keys": ""
+        }
+      ],
+      "apps": [
+        "com.apple.Safari"
+      ]
+    }
+  ],
+  "notif_on": true
+}

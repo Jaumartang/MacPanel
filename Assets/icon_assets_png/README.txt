@@ -1,0 +1,1 @@
+Icon PNG assets cropped from an icon sheet. 256x256 px each. Background/glow may be present; these are not transparent cutouts.\n
