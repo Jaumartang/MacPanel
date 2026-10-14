@@ -992,6 +992,49 @@ bool pageIsLauncher()
     return strcmp(cfg.pages[gPage].layout, "launcher") == 0;
 }
 
+/* --- Pestanyes del navegador: botons sintetics amb les pestanyes obertes --- */
+constexpr int TABS_MAX = MacLink::MAX_TABS;
+MacLink::Button gTabs[TABS_MAX];
+int gTabsCount = 0;
+
+void buildTabs()
+{
+    /* El Mac ja filtra: nomes envia les pestanyes del navegador que te el
+     * focus. Es una sola llista, com les apps del launcher. Si encara no han
+     * arribat, no hi ha res a mostrar i el Mac les tornarà a enviar. */
+    gTabsCount = MacLink::tabCount();
+    if (gTabsCount > TABS_MAX) gTabsCount = TABS_MAX;
+    for (int i = 0; i < gTabsCount; ++i) {
+        /* L'id va 1-based: el Mac activa la pestanya pel seu numero (1..N),
+         * igual que envia els titols. */
+        snprintf(gTabs[i].id, sizeof(gTabs[i].id), "tab:%d", i + 1);
+        strlcpy(gTabs[i].label, MacLink::tabName(i), sizeof(gTabs[i].label));
+        gTabs[i].keys[0] = '\0';
+        const char* ic = MacLink::tabIcon(i);
+        if (ic[0] != '\0' && Icons::exists(ic)) {
+            strlcpy(gTabs[i].icon, ic, sizeof(gTabs[i].icon));
+        } else {
+            gTabs[i].icon[0] = '\0';
+        }
+    }
+}
+
+bool pageIsTabs()
+{
+    const MacLink::Config& cfg = MacLink::config();
+    if (gPage < 0 || gPage >= cfg.pageCount) {
+        return false;
+    }
+    return strcmp(cfg.pages[gPage].layout, "tabs") == 0;
+}
+
+/* Demana al Mac que reenviï les pestanyes de la pantalla actual ('R tabs').
+ * S'usa quan s'enta a una pantalla "tabs" i encara no tenim la seva llista. */
+void requestTabs()
+{
+    MacLink::sendCommand("refresh:tabs");
+}
+
 const MacLink::Button* pageButton(int i)
 {
     if (pageIsNumpad()) {
@@ -999,6 +1042,9 @@ const MacLink::Button* pageButton(int i)
     }
     if (pageIsLauncher()) {
         return (i >= 0 && i < gLaunchCount) ? &gLaunch[i] : nullptr;
+    }
+    if (pageIsTabs()) {
+        return (i >= 0 && i < gTabsCount) ? &gTabs[i] : nullptr;
     }
     const MacLink::Config& cfg = MacLink::config();
     if (gPage < 0 || gPage >= cfg.pageCount) {
@@ -1009,6 +1055,13 @@ const MacLink::Button* pageButton(int i)
         return nullptr;
     }
     return &p.buttons[i];
+}
+
+/* Els botons de llista (launcher d'apps i pestanyes) porten icona gran i el
+ * títol en lletra més grossa, perquè es reconeguin d'un cop d'ull. */
+bool esBotoLlista(const char* id)
+{
+    return strncmp(id, "focus:", 6) == 0 || strncmp(id, "tab:", 4) == 0;
 }
 
 void drawButton(int i, bool pressed)
@@ -1038,10 +1091,10 @@ void drawButton(int i, bool pressed)
 
     /* Amb icona: icona a dalt i text a sota. Sense icona: nomes el text centrat. */
     if (b->icon[0] != '\0') {
-        /* Al launcher (apps obertes) la icona es una mica mes gran: son les
-         * icones de les apps i es reconeixen millor. */
-        const bool esLauncher = (strncmp(b->id, "focus:", 6) == 0);
-        const int  maxPx = esLauncher ? 56 : ICON_BTN_PX;
+        /* Al launcher i a les pestanyes la icona es una mica mes gran: son les
+         * icones de les apps i els favicons, i es reconeixen millor. */
+        const bool esLlista = esBotoLlista(b->id);
+        const int  maxPx = esLlista ? 56 : ICON_BTN_PX;
 
         int isz = h - 22;
         if (isz > maxPx) isz = maxPx;
@@ -1072,8 +1125,8 @@ void drawButton(int i, bool pressed)
         setFontL(t);
         t.setTextColor(pressed ? COL_ACCENT
                                : (esOperador ? COL_ACCENT : COL_TEXT), bg);
-    } else if (strncmp(b->id, "focus:", 6) == 0) {
-        /* Launcher (apps obertes): el nom de l'app en lletra mes gran. */
+    } else if (esBotoLlista(b->id)) {
+        /* Launcher (apps obertes) i pestanyes: el nom en lletra mes gran. */
         setFontM(t);
         t.setTextColor(pressed ? COL_ACCENT : COL_TEXT, bg);
     }
@@ -1082,7 +1135,7 @@ void drawButton(int i, bool pressed)
      * retallem amb punts suspensius perque no surti del boto. */
     const char* out = b->label;
     char txt[24];
-    if (strncmp(b->id, "focus:", 6) == 0) {
+    if (esBotoLlista(b->id)) {
         fitText(t, b->label, txt, sizeof(txt), w - 8);
         out = txt;
     }
@@ -2459,15 +2512,19 @@ void layout()
     const bool isStatus   = pg && strcmp(pg->layout, "status") == 0;
     const bool isLauncher = pg && strcmp(pg->layout, "launcher") == 0;
     const bool isGraph    = pg && strcmp(pg->layout, "graph")  == 0;
+    const bool isTabs     = pg && strcmp(pg->layout, "tabs")   == 0;
 
-    /* Botons (el teclat numeric i el launcher en generen de propis). */
-    gBtnCols = isNumpad ? 4 : (isLauncher ? 2 : BTN_COLS);
+    /* Botons (el teclat numeric, el launcher i les pestanyes en generen de propis). */
+    gBtnCols = isNumpad ? 4 : ((isLauncher || isTabs) ? 2 : BTN_COLS);
     if (isNumpad) {
         buildNumpad();
         gBtnCount = NUMPAD_COUNT;
     } else if (isLauncher) {
         buildLauncher();
         gBtnCount = gLaunchCount;
+    } else if (isTabs) {
+        buildTabs();
+        gBtnCount = gTabsCount;
     } else if (pg) {
         gBtnCount = pg->buttonCount;
     } else {
@@ -3049,6 +3106,13 @@ void dismissBanner()
 void onAppsChanged()
 {
     if (pageIsLauncher()) {
+        layout();
+    }
+}
+
+void onTabsChanged()
+{
+    if (pageIsTabs()) {
         layout();
     }
 }

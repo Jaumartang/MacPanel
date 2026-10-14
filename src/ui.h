@@ -118,4 +118,8 @@ void splashEnd();
 /* El Mac ha actualitzat la llista d'apps: repinta si som al launcher. */
 void onAppsChanged();
 
+/* El Mac ha actualitzat les pestanyes del navegador: repinta si som a una
+ * pantalla de tipus "tabs". */
+void onTabsChanged();
+
 }  // namespace Ui

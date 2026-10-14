@@ -449,6 +449,12 @@ void loop()
         Ui::onAppsChanged();
     }
 
+    /* Pestanyes del navegador: el Mac ha actualitzat la llista de la pantalla
+     * "tabs" actual. */
+    if (MacLink::takeTabsChanged()) {
+        Ui::onTabsChanged();
+    }
+
     /* Avis del Mac (notificacions). */
     const MacLink::Notice* notice = MacLink::takeNotice();
     if (notice != nullptr) {

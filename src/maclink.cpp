@@ -38,6 +38,14 @@ char gAppIcons[MacLink::MAX_APPS][20];
 int  gAppCount = 0;
 bool gAppsChanged = false;
 
+/* Pestanyes del navegador (per a la pantalla "tabs"). El Mac envia 'T' amb les
+ * pestanyes obertes del navegador que te el focus; cada una pot portar el
+ * favicon darrere un '=' (com les apps del launcher). */
+char gTabs[MacLink::MAX_TABS][28];
+char gTabIcons[MacLink::MAX_TABS][20];
+int  gTabCount = 0;
+bool gTabsChanged = false;
+
 /* Avis pendent de mostrar (notificacio del Mac). */
 MacLink::Notice gNotice = {"", "", ""};
 bool            gNoticeNew = false;
@@ -358,6 +366,31 @@ bool processLine(char* line)
         return true;
     }
 
+    /* --- Pestanyes del navegador: 'T Titol=favicon|Titol2=...' -------------- *
+     * El Mac ja filtra: nomes envia les pestanyes del navegador que te el
+     * focus. Els titols van netejats al Mac (sense '|' ni '='): aixi el primer
+     * '=' separa sempre el titol del favicon. Una linia 'T' buida (= cap
+     * pestanya) es valida i deixa la llista a zero. */
+    if (strncmp(line, "T ", 2) == 0) {
+        gTabCount = 0;
+        char* save = nullptr;
+        for (char* tok = strtok_r(line + 2, "|", &save);
+             tok != nullptr && gTabCount < MacLink::MAX_TABS;
+             tok = strtok_r(nullptr, "|", &save)) {
+            char* igual = strchr(tok, '=');
+            if (igual != nullptr) {
+                *igual = '\0';
+                strlcpy(gTabIcons[gTabCount], igual + 1, sizeof(gTabIcons[0]));
+            } else {
+                gTabIcons[gTabCount][0] = '\0';
+            }
+            strlcpy(gTabs[gTabCount], tok, sizeof(gTabs[0]));
+            ++gTabCount;
+        }
+        gTabsChanged = true;
+        return true;
+    }
+
     /* --- Avis per a la pantalla: 'N aplicacio|titol|cos' ------------------ */
     if (strncmp(line, "N ", 2) == 0) {
         char* s = line + 2;
@@ -536,6 +569,35 @@ const ForecastDay& forecast(int index)
 const char* nextEvent()
 {
     return gEvent;
+}
+
+/* --- Pestanyes del navegador --------------------------------------------- */
+int tabCount()
+{
+    return gTabCount;
+}
+
+const char* tabName(int index)
+{
+    if (index < 0 || index >= gTabCount) {
+        return "";
+    }
+    return gTabs[index];
+}
+
+const char* tabIcon(int index)
+{
+    if (index < 0 || index >= gTabCount) {
+        return "";
+    }
+    return gTabIcons[index];
+}
+
+bool takeTabsChanged()
+{
+    const bool c = gTabsChanged;
+    gTabsChanged = false;
+    return c;
 }
 
 }  // namespace MacLink

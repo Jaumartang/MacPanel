@@ -129,6 +129,23 @@ const char* appIcon(int index);
 /* true un sol cop despres que el Mac hagi actualitzat la llista d'apps. */
 bool takeAppsChanged();
 
+/* --- Pestanyes del navegador (les envia el Mac amb 'T nom=icona|...') ------
+ * La pantalla de tipus "tabs" mostra les pestanyes obertes del navegador que te
+ * el focus, com a botons amb el seu favicon. Com les apps del launcher, es una
+ * sola llista (el Mac ja les filtra: nomes envia les del navegador actiu).
+ * En tocar-ne una, la placa envia 'C tab:N' (N, 1-based) i el Mac la porta al
+ * davant. */
+static constexpr int MAX_TABS = 15;         /* pestanyes visibles */
+
+int         tabCount();
+const char* tabName(int index);             /* index 0-based */
+/* Nom de la icona (favicon) de la pestanya 'index' ("" si no en te). */
+const char* tabIcon(int index);
+
+/* true un sol cop despres que el Mac hagi actualitzat la llista de pestanyes. */
+bool takeTabsChanged();
+
+
 /* --- Previsio del temps (3 dies) ------------------------------------------ */
 struct ForecastDay {
     int8_t code;   /* codi WMO */
