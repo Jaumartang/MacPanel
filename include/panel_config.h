@@ -26,8 +26,11 @@ static constexpr size_t CONSOLE_LINE_MAX = 96;
  * fins a 12 pantalles amb 15 botons cadascuna). Compte: cada byte d'aquest
  * buffer es DRAM estatica que no queda per a la pila de Bluetooth. */
 static constexpr size_t MACLINE_MAX = 4096;
-/* Si no arriba cap linia d'estadistiques 'S' en aquest temps, es NO LINK. */
-static constexpr uint32_t LINK_TIMEOUT_MS = 3000;
+/* Si no arriba cap linia d'estadistiques 'S' en aquest temps, es NO LINK.
+ * 10 s (abans 3): el Mac pot tenir iteracions puntualment lentes (subprocessos
+ * que es traben quan el sistema esta carregat) i no val la pena que, per 8 s
+ * sense stats, la placa es passi a "sense enllac" i apagui la pantalla. */
+static constexpr uint32_t LINK_TIMEOUT_MS = 10000;
 /* Cada quan s'escriu l'estat de memoria pel port serie. */
 static constexpr uint32_t HEAP_LOG_INTERVAL_MS = 10000;
 

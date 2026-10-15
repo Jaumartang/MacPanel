@@ -420,6 +420,17 @@ def _run(cmd, timeout=2.0):
 
 # --- Estadistiques del Mac -------------------------------------------------
 
+# Caches de valors que canvien poc. Cada subprocess extra al bucle de stats es
+# una oportunitat que el Mac es trabi un moment de càrrega (i la placa, en no
+# rebre cap linia S durant 3 s, perd l'enllac i apaga la pantalla). Amb
+# aixi passem de ~8 subprocessos per segon a 2-3.
+_boot_epoch = None     # hora d'arrencada del Mac (per l'uptime, un sol cop)
+_memsize = 0           # RAM total (un sol cop: mai no canvia)
+_hostname_c = ""       # nom del Mac (un sol cop: mai no canvia)
+_disk_c = (0.0, 0.0)   # (moment, %) del disc, refrescat cada 30 s
+_bat_c = (0.0, (None, -1))   # (moment, (%, carregant)), cada 10 s
+_dark_c = (0.0, 0)     # (moment, mode fosc), cada 10 s
+
 # --- CPU -------------------------------------------------------------------
 # Els comptadors del nucli (Mach) donen el consum REAL entre dues lectures. Amb
 # 'ps -o %cpu' sortia un valor molt mes baix, perque cada proces hi porta la
@@ -485,6 +496,7 @@ def cpu_percent():
 
 def mem_percent():
     """% de memoria usada = (active + wired + compressor) / total."""
+    global _memsize
     out = _run(["vm_stat"])
     page = 4096
     m = re.search(r"page size of (\d+)", out)
@@ -499,11 +511,12 @@ def mem_percent():
     wired = pages("Pages wired down")
     comp = pages("Pages occupied by compressor")
 
-    total_b = 0
-    try:
-        total_b = int(_run(["sysctl", "-n", "hw.memsize"]).strip() or 0)
-    except ValueError:
-        total_b = 0
+    if _memsize <= 0:                 # la RAM total mai no canvia: un sol cop
+        try:
+            _memsize = int(_run(["sysctl", "-n", "hw.memsize"]).strip() or 0)
+        except ValueError:
+            _memsize = 0
+    total_b = _memsize
     if total_b <= 0:
         return 0.0
     used = (active + wired + comp) * page
@@ -511,54 +524,84 @@ def mem_percent():
 
 
 def disk_percent():
-    """% de disc usat a '/'."""
+    """% de disc usat a '/' (refrescat cada 30 s: canvia molt a poc a poc)."""
+    global _disk_c
+    now = time.time()
+    if now - _disk_c[0] < 30.0:
+        return _disk_c[1]
+    val = 0.0
     out = _run(["df", "-k", "/"])
     lines = [ln for ln in out.strip().splitlines() if ln.strip()]
-    if len(lines) < 2:
-        return 0.0
-    for part in lines[-1].split():
-        if part.endswith("%"):
-            try:
-                return float(part[:-1])
-            except ValueError:
-                return 0.0
-    return 0.0
+    if len(lines) >= 2:
+        for part in lines[-1].split():
+            if part.endswith("%"):
+                try:
+                    val = float(part[:-1])
+                except ValueError:
+                    val = 0.0
+                break
+    _disk_c = (now, val)
+    return val
 
 
 def battery():
-    """(percentatge, carregant) o (None, -1) si no hi ha bateria."""
+    """(percentatge, carregant) o (None, -1) si no hi ha bateria.
+
+    Refrescat cada 10 s: el % canvia com a molt 1 cada molts segons.
+    """
+    global _bat_c
+    now = time.time()
+    if now - _bat_c[0] < 10.0:
+        return _bat_c[1]
     out = _run(["pmset", "-g", "batt"])
     m = re.search(r"(\d+)%", out)
     if not m:
+        _bat_c = (now, (None, -1))
         return (None, -1)
     pct = float(m.group(1))
     chg = 1 if re.search(r"\bcharging\b|\bcharged\b|finishing charge", out) else 0
+    _bat_c = (now, (pct, chg))
     return (pct, chg)
 
 
 def uptime_seconds():
-    out = _run(["sysctl", "-n", "kern.boottime"])
-    m = re.search(r"sec = (\d+)", out)
-    if not m:
-        return 0
-    return max(0, int(time.time() - int(m.group(1))))
+    """Segons des de l'arrencada. Pregunta 'sysctl' un sol cop i despres calcula."""
+    global _boot_epoch
+    if _boot_epoch is None:
+        out = _run(["sysctl", "-n", "kern.boottime"])
+        m = re.search(r"sec = (\d+)", out)
+        if not m:
+            return 0
+        _boot_epoch = int(m.group(1))
+    return max(0, int(time.time() - _boot_epoch))
 
 
 def hostname():
+    """Nom del Mac: com que mai no canvia, es pregunta un sol cop."""
+    global _hostname_c
+    if _hostname_c:
+        return _hostname_c
     out = _run(["scutil", "--get", "ComputerName"]).strip()
     if not out:
         out = socket.gethostname()
-    return re.sub(r"\s+", "_", out)
+    _hostname_c = re.sub(r"\s+", "_", out)
+    return _hostname_c
 
 
 def mac_dark_mode():
     """El Mac te l'aparenca fosca? Ho diu AppleInterfaceStyle.
 
     Amb l'aparenca clara la clau no existeix i 'defaults' peta: aleshores la
-    sortida es buida i ho interpretem com a clar.
+    sortida es buida i ho interpretem com a clar. Refrescat cada 10 s.
     """
+    global _dark_c
+    now = time.time()
+    if now - _dark_c[0] < 10.0:
+        return _dark_c[1]
     out = _run(["defaults", "read", "-g", "AppleInterfaceStyle"]).strip()
-    return 1 if out.lower() == "dark" else 0
+    val = 1 if out.lower() == "dark" else 0
+    _dark_c = (now, val)
+    return val
 
 
 THEMES = ["Fosc", "Clar", "Neo", "Grafite", "Pastel", "HUD"]
@@ -1640,6 +1683,7 @@ class Bridge:
         mateixa proteccio d'enllac que abans).
         """
         t_apps = 0.0
+        t_ev = 0.0
         while self.running:
             try:
                 # Apps obertes per al launcher: mateixa raó que les pestanyes
@@ -1653,6 +1697,19 @@ class Bridge:
                                 and not self._busy.is_set()):
                             self.send_line(launcher_line(apps))
                             self.log(f"launcher: {len(apps)} apps obertes")
+                # Agenda (proper esdeveniment): l'AppleScript de Calendar pot
+                # trigar 8 s (i obrir l'app si esta tancada); abans es feia al
+                # bucle de stats i, cada 5 minuts, la placa perdia l'enllac.
+                if time.time() - t_ev > 300.0:
+                    t_ev = time.time()
+                    ev = next_event()
+                    if ev != self._event:
+                        self._event = ev
+                        if (self.ser is not None and self._ready
+                                and not self._busy.is_set()):
+                            self.send_line("E " + ev)
+                            self.log(f"agenda: {ev}" if ev
+                                     else "agenda: sense esdeveniments")
                 if self.tab_pages():
                     nav = browser_running()
                     tabs = browser_tabs(nav) if nav else []
@@ -1689,8 +1746,16 @@ class Bridge:
 
     def run_stats_loop(self):
         t_conn = time.time()
+        t_prev = None          # fi de l'iteracio anterior (diagnòstic)
         while self.running:
             t0 = time.time()
+            # Diagnòstic: entre dues iteracions nomes hi hauria de passar el
+            # sleep (~1 s). Si es molt mes, el temps es perd FORA del bucle
+            # (no es cap dels passes mesurats de dins).
+            if t_prev is not None and (t0 - t_prev) > 2.5:
+                self.log(f"[DIAG] gap entre iteracions: {t0 - t_prev:.1f}s "
+                         f"(el sleep hauria de ser ~1 s)")
+            dt_c = dt_n = dt_a = dt_t = 0.0   # diagnòstic: temps de cada part
 
             # No enviem res fins que la placa ens hagi saludat amb 'H': mentre
             # arrenca, el seu port no esta a punt i els primers bytes es perden
@@ -1706,12 +1771,15 @@ class Bridge:
                 t_conn = time.time()
 
             try:
+                t_c = time.time()
                 self.stats = self.collect_stats()
                 if (self.ser is not None and self._ready
                         and not self._busy.is_set()):
                     self.send_line(self.stats_line())
+                dt_c = time.time() - t_c
             except Exception as exc:
                 self.log(f"error d'estadistiques: {exc}")
+                dt_c = 0.0
 
             # Llista d'apps per al launcher: la llegeix run_tabs_loop (fil
             # propi); aqui no es fa res (System Events pot trigar 4 s i
@@ -1724,24 +1792,31 @@ class Bridge:
             if time.time() - self._tabs_t > 3.0:
                 self._tabs_t = time.time()
                 try:
+                    t_t = time.time()
                     self.send_tabs_if_changed()
+                    dt_t = time.time() - t_t
                 except Exception as exc:
                     self.log(f"error de pestanyes: {exc}")
+                    dt_t = 0.0
 
             # Notificacions del macOS -> baner a la pantalla (cada 2 s).
             if self.notifs_on and time.time() - self._notif_t > 2.0:
                 self._notif_t = time.time()
+                t_n = time.time()
                 for n in self.notifs.poll():
                     if (self.ser is not None or self.sock is not None) \
                             and self._ready and not self._busy.is_set():
                         self.send_notice(n)
+                dt_n = time.time() - t_n
             # Aplicacio que te el focus: l'enviem nomes quan canvia. Si no en
             # detectem cap (salvapantalles, sessio bloquejada...) ens quedem
             # amb l'ultima que sabiem: aixi la placa no torna a la primera
             # pantalla tot sol.
             if time.time() - self._app_t > 1.0:
                 self._app_t = time.time()
+                t_a = time.time()
                 bundle, name = front_app()
+                dt_a = time.time() - t_a
                 if bundle and (bundle, name) != self.app:
                     self.app = (bundle, name)
                     self.stats["app"] = bundle
@@ -1760,17 +1835,21 @@ class Bridge:
                 elif b > 25:
                     self._bat_warned = False
 
-            # Agenda: proper esdeveniment (cada 5 min).
-            if time.time() - self._event_t > 300:
-                self._event_t = time.time()
-                ev = next_event()
-                if ev != self._event:
-                    self._event = ev
-                    if (self.ser is not None and self._ready
-                            and not self._busy.is_set()):
-                        self.send_line("E " + ev)
-                        self.log(f"agenda: {ev}" if ev else "agenda: sense esdeveniments")
+            # Agenda del proper esdeveniment: la llegeix run_tabs_loop (fil
+            # propi); l'AppleScript de Calendar pot trigar 8 s i, si es feia
+            # aqui, la placa perdia l'enllac cada 5 minuts.
+            # Diagnòstic d'inestabilitat: si una iteracio triga gaire (la placa
+            # perd l'enllac als 3 s sense stats i apaga la pantalla), loguem
+            # QUINA part ha sigut lenta. Les normals son ~1 s.
+            dt_all = time.time() - t0
+            if dt_all > 1.5:
+                parts = {"stats": dt_c, "tabs": dt_t, "notifs": dt_n, "app": dt_a}
+                pit = max(parts, key=parts.get)
+                self.log(f"[DIAG] iteracio lenta: total {dt_all:.1f}s | pitjor: "
+                         f"{pit} {parts[pit]:.1f}s | "
+                         + " ".join(f"{k}={v:.1f}" for k, v in parts.items()))
             interval = max(0.2, float(self.config.get("refresh_ms", 1000)) / 1000.0)
+            t_prev = time.time()
             time.sleep(max(0.05, interval - (time.time() - t0)))
 
     def run_read_loop(self):
