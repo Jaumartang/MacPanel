@@ -25,6 +25,16 @@ void begin();
 /* Torna a calcular la disposicio i repintar (quan canvia la configuracio). */
 void layout();
 
+/* Igual que layout(), pero si a la pantalla actual encara li falten les dades
+ * del Mac (launcher o pestanyes sense rebre), mostra la pantalla d'inici amb
+ * el nom de la pantalla destí: aixi no es veu ni una pagina buida ni
+ * parpelleigs mentre carrega. */
+void rebuild();
+
+/* Pantalla d'inici amb el nom de la pantalla que s'obrira quan arribin les
+ * dades ("carregant «Pestanyes»..."). */
+void splashLoading();
+
 /* Actualitza capcalera i valors d'estat (nomes el que canvia). */
 void refresh(const MacLink::Stats& s, bool linkUp);
 

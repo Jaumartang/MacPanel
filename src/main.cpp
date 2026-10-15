@@ -437,7 +437,7 @@ void loop()
     const bool cfgChanged = MacLink::takeConfigChanged();
     if (cfgChanged) {
         Ui::setStandbyMs(static_cast<uint32_t>(MacLink::config().standbyS) * 1000UL);
-        Ui::layout();
+        Ui::rebuild();
         /* El teclat Bluetooth NO s'encen aqui: es fa des del bucle, amb retard
          * (vegeu BT_START_DELAY_MS), perque necessita mes de 100 KB i deixaria
          * el heap massa just per llegir la configuracio que arriba del Mac. */

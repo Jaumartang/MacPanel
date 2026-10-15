@@ -342,6 +342,13 @@ bool gSwipeActive = false;
 
 int gPressed = -1;
 
+/* --- Debounce del backlight (anti-parpelleig) ---------------------------------
+ * layout() apaga el backlight mentre pinta; si arriben dades seguides
+ * (config + stats + pestanyes en arrencar), no el toquem si fa poc que l'hem
+ * mogut. */
+constexpr uint32_t BL_DEBOUNCE_MS = 700;
+uint32_t gLastBlMs = 0;
+
 /* --- Repos (standby) ------------------------------------------------------ */
 bool     gScreenOn    = true;
 bool     gMacAwake    = true;
@@ -2390,8 +2397,8 @@ void refresh(const MacLink::Stats& s, bool linkUp)
         Serial.printf("[UI] %s\n", gNoLink
                       ? "sense enllac: nomes rellotge i ajustos de la placa"
                       : "enllac recuperat: pantalles normals");
-        layout();
-        return;                        /* layout() ja ho ha pintat tot */
+        rebuild();
+        return;                        /* rebuild() ja ho ha pintat tot */
     }
 
     /* Pantalla de repòs: nomes la repintem quan canvia alguna cosa. */
@@ -2460,6 +2467,25 @@ void layout()
 {
     TFT_eSPI& t = Display::driver();
     const MacLink::Config& cfg = MacLink::config();
+    const uint32_t ara = millis();
+
+    /* Debounce del backlight: la pantalla d'arrencada rep config + stats +
+     * pestanyes seguides, i cada una disparava un layout() (= apagar i
+     * encendre el backlight = parpelleig). Si fa menys de 700 ms de l'ultim
+     * canvi de backlight, el deixem encés i seguim pintant: no es veu res a
+     * mig fer perque igualment repintem tot damunt.
+     *
+     * Nomes sha d'apagar de veritat quan la pantalla estava en repòs
+     * (backlight apagat): aleshores cal mantenir-la fosca fins al final. */
+    const uint8_t bl = Display::backlight();
+    const bool caliaFosc = (bl == 0);
+    bool femDebounce = false;
+    if (!caliaFosc && ara - gLastBlMs < BL_DEBOUNCE_MS) {
+        femDebounce = true;
+    } else {
+        Display::setBacklight(0);
+        gLastBlMs = ara;
+    }
 
     /* Orientacio (vertical / horitzontal) — display I tactil. */
     const uint8_t rot = (cfg.orientation[0] == 'h') ? 1 : 0;
@@ -2580,9 +2606,8 @@ void layout()
         gBtnCellH = minBtnH;
     }
 
-    /* Pantalla fosca mentre es pinta: no es veu res a mig fer. */
-    const uint8_t bl = Display::backlight();
-    Display::setBacklight(0);
+    /* Pantalla fosca mentre es pinta: fet a dalt amb debounce (per no
+     * parpellejar quan arriben dades seguides mentre carrega). */
 
     /* Fons amb un degradat vertical molt suau (en lloc d'un color pla): dona
      * profunditat i fa que no sembli tan "de casa". */
@@ -2612,7 +2637,13 @@ void layout()
     invalidate();
     refresh(MacLink::stats(), MacLink::linkUp());
 
-    Display::setBacklight(bl);
+    /* Tornem la llum nomes si l'haviem apagat nosaltres: amb debounce (ja
+     * estava encesa) no la toquem, i si estava en repòs la deixem fosca
+     * perque la desperti el toc (touchActivity / setScreenOn ja l'encenen). */
+    if (!femDebounce && !caliaFosc) {
+        Display::setBacklight(bl);
+        gLastBlMs = millis();
+    }
 }
 
 void begin()
@@ -2625,6 +2656,36 @@ int currentPage()
     return gPage;
 }
 
+/* A la pantalla actual li falten les dades del Mac? (launcher o pestanyes que
+ * encara no han arribat: si pintesim ara, sortiria una pagina buida i, quan
+ * arribessin, un altre layout() = parpelleig). */
+bool pageNeedsData()
+{
+    const MacLink::Config& cfg = MacLink::config();
+    if (gPage < 0 || gPage >= cfg.pageCount) {
+        return false;
+    }
+    if (pageIsLauncher() && MacLink::appCount() == 0) {
+        return true;
+    }
+    if (pageIsTabs() && MacLink::tabCount() == 0) {
+        return true;
+    }
+    return false;
+}
+
+/* Igual que layout(), pero si a la pàgina actual li falten les dades del Mac,
+ * mostra la pantalla d'inici amb el seu nom en lloc d'una pagina buida.
+ * (La definicio de splashLoading() es a baix, al costat de l'splash.) */
+void rebuild()
+{
+    if (pageNeedsData()) {
+        splashLoading();
+        return;
+    }
+    layout();
+}
+
 void setPage(int index)
 {
     const MacLink::Config& cfg = MacLink::config();
@@ -2632,7 +2693,7 @@ void setPage(int index)
         return;
     }
     gPage = index;
-    layout();
+    rebuild();
     /* En entrar a una pantalla de pestanyes, demem al Mac que ens les envií
      * de seguida (si no, hauriem d'esperar el cicle de 3 s del pont). */
     if (pageIsTabs()) {
@@ -3111,14 +3172,14 @@ void dismissBanner()
 void onAppsChanged()
 {
     if (pageIsLauncher()) {
-        layout();
+        rebuild();
     }
 }
 
 void onTabsChanged()
 {
     if (pageIsTabs()) {
-        layout();
+        rebuild();
     }
 }
 
@@ -3628,4 +3689,28 @@ void splashEnd()
     }
 }
 
+/* Pantalla d'inici amb el nom de la pantalla destí: "carregant «Pestanyes»".
+ * Reutilitza l'splash normal pero amb el xip de la pantalla que s'obrira quan
+ * arribin les dades (en lloc de "engegant"). Aqui dins de namespace Ui ja es
+ * veuen gSplashPct/splashStep (son de l'anonim superior del mateix fitxer) i
+ * gPage/pageIsLauncher/pageIsTabs (de l'anonim del layout). */
+void splashLoading()
+{
+    const MacLink::Config& cfg = MacLink::config();
+    char nom[20] = "";
+    if (gPage >= 0 && gPage < cfg.pageCount && cfg.pages[gPage].name[0] != '\0') {
+        strlcpy(nom, cfg.pages[gPage].name, sizeof(nom));
+    }
+    char xip[30];
+    if (nom[0] != '\0') {
+        snprintf(xip, sizeof(xip), "carregant %s", nom);
+    } else {
+        strlcpy(xip, "carregant", sizeof(xip));
+    }
+    /* Refem l'splash des de zero amb el xip de destí (barra al 60%: ja tenim
+     * la config, falten les dades del Mac). */
+    gSplashPct = -1;                    /* força que splashStep repinti tot */
+    splashStep(60, xip);
+    Serial.printf("[UI] carregant '%s'\n", nom);
+}
 }  // namespace Ui
