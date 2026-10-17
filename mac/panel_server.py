@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from bridge import (ACTIONS, Bridge, WIDGETS, apps_instalades, extreu_icona,
-                    list_icons, load_config, save_config)
+                    favicon_icon, list_icons, load_config, save_config)
 import panel_model as model
 
 HOST = "127.0.0.1"
@@ -110,6 +110,29 @@ class Handler(BaseHTTPRequestHandler):
                        json.dumps(model.exporta(BRIDGE.config),
                                   ensure_ascii=False, indent=2),
                        "application/json; charset=utf-8")
+        elif path == "/api/favorits":
+            # Favorits dels navegadors, amb el favicon que els toca. Els fa
+            # servir la biblioteca de l'editor per poder-hi afegir botons.
+            try:
+                favs = list(BRIDGE._favs)
+            except Exception:
+                favs = []
+            icones = set(list_icons())
+            out = []
+            for i, f in enumerate(favs):
+                try:
+                    titol, url, nav = f
+                except (TypeError, ValueError):
+                    continue
+                ic = favicon_icon(url)
+                out.append({
+                    "index": i,
+                    "titol": titol or _domini_net(url),
+                    "url": url,
+                    "navegador": nav,
+                    "icona": ic if ic in icones else "",
+                })
+            self._json({"favorits": out})
         elif path == "/api/elements":
             # Elements tipats d'una pantalla (els fa servir l'editor).
             try:

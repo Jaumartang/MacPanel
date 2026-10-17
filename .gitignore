@@ -10,3 +10,9 @@ __pycache__/
 
 # Log d'execució del panell
 mac/panel.log
+
+# Imatges que generen les eines de treball (no son part del producte):
+#   tools/mostra_icones.py, tools/mostra_originals.py, tools/preview_fons.py
+mostra_icones.png
+mostra_originals.png
+preview_fons_*.png

@@ -1875,28 +1875,88 @@ function renderCostat() {
 function renderBiblioteca(box) {
   const pg = curPg();
   box.appendChild(el("p", { class: "muted" },
-    "Clica un element per afegir-lo a aquesta pantalla, o arrossega'l sobre el simulador."));
+    "Clica un element per afegir-lo a aquesta pantalla."));
+
+  /* --- Gadgets --- */
   box.appendChild(el("h2", {}, "Gadgets"));
   const lg = el("div", { class: "llib" });
   const gads = (MODEL && MODEL.gadgets) || {};
   Object.keys(gads).forEach((id) => {
     const usat = (pg.widgets || []).indexOf(id) >= 0;
     lg.appendChild(el("button", { class: usat ? "usat" : "",
-                                  draggable: "true",
                                   onclick: () => afegeixGadget(id) },
       gads[id].nom + (usat ? "  ✓" : "")));
   });
   box.appendChild(lg);
-  box.appendChild(el("h2", {}, "Botons"));
+
+  /* --- Apps del Mac --- */
+  box.appendChild(el("h2", {}, "Apps del Mac"));
+  const filtre = el("input", { type: "search", placeholder: "Cerca una app..." });
+  const reixa = el("div", { class: "llib", style: "max-height:190px;overflow:auto" });
+  const pintaApps = () => {
+    reixa.innerHTML = "";
+    const q = filtre.value.trim().toLowerCase();
+    const ll = appsMac.filter(a => !q || (a.name || "").toLowerCase().indexOf(q) >= 0);
+    if (!ll.length) {
+      reixa.appendChild(el("p", { class: "muted" },
+        appsMac.length ? "cap app amb aquest nom" : "llegint les apps del Mac..."));
+      return;
+    }
+    ll.slice(0, 40).forEach((a) => {
+      const ja = (pg.buttons || []).some(b => b.id === "app:" + a.bundle);
+      const b = el("button", { class: ja ? "usat" : "" },
+        (a.icon ? "  " : "") + a.name + (ja ? "  ✓" : ""));
+      if (a.icon) {
+        const img = el("img", { src: "/icons/" + a.icon + ".png", alt: "",
+                                style: "width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:5px" });
+        b.insertBefore(img, b.firstChild);
+      }
+      b.addEventListener("click", () => afegeixBotoApp(a));
+      reixa.appendChild(b);
+    });
+  };
+  filtre.addEventListener("input", pintaApps);
+  box.appendChild(filtre);
+  box.appendChild(reixa);
+  if (!appsMac.length) carregaApps();
+  pintaApps();
+
+  /* --- Favorits dels navegadors --- */
+  box.appendChild(el("h2", {}, "Favorits"));
+  const reixaF = el("div", { class: "llib", style: "max-height:190px;overflow:auto" });
+  reixaF.appendChild(el("p", { class: "muted" }, "llegint els favorits..."));
+  box.appendChild(reixaF);
+  api("/api/favorits").then((d) => {
+    reixaF.innerHTML = "";
+    const ll = (d && d.favorits) || [];
+    if (!ll.length) {
+      reixaF.appendChild(el("p", { class: "muted" },
+        "No s'ha llegit cap favorit (cal que el pont estigui en marxa)."));
+      return;
+    }
+    ll.slice(0, 40).forEach((f) => {
+      const accio = "fav:" + f.index;
+      const ja = (pg.buttons || []).some(b => b.id === accio);
+      const b = el("button", { class: ja ? "usat" : "",
+                               title: f.url + "  (" + (f.navegador || "?") + ")" },
+        (f.titol || f.url).slice(0, 24) + (ja ? "  ✓" : ""));
+      if (f.icona) {
+        b.insertBefore(el("img", { src: "/icons/" + f.icona + ".png", alt: "",
+                                   style: "width:16px;height:16px;object-fit:contain;vertical-align:-3px;margin-right:5px" }),
+                       b.firstChild);
+      }
+      b.addEventListener("click", () => afegeixBoto(accio));
+      reixaF.appendChild(b);
+    });
+  });
+
+  /* --- Accions del sistema --- */
+  box.appendChild(el("h2", {}, "Accions del sistema"));
   const lb = el("div", { class: "llib" });
-  const acc = (MODEL && MODEL.accions_sistema) || [];
-  acc.forEach((id) => {
+  ((MODEL && MODEL.accions_sistema) || []).forEach((id) => {
     lb.appendChild(el("button", { onclick: () => afegeixBoto(id) }, id));
   });
   box.appendChild(lb);
-  box.appendChild(el("p", { class: "muted" },
-    "Per afegir aplicacions del Mac, fes servir la pestanya \"Apps i icones\": " +
-    "clicant una app s'hi afegeix un boto."));
 }
 
 function renderPropietats(box) {
