@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 from bridge import (ACTIONS, Bridge, WIDGETS, apps_instalades, extreu_icona,
                     list_icons, load_config, save_config)
+import panel_model as model
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8770
@@ -83,6 +84,39 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, "falta panel.html", "text/plain; charset=utf-8")
         elif path == "/api/state":
             self._json(state())
+        elif path == "/api/model":
+            # Cataleg del model: el que l'editor pot oferir. Aixi el navegador
+            # no ha de duplicar les llistes (ni les regles) que ja te el Python.
+            self._json({
+                "versio": model.SCHEMA_VERSION,
+                "gadgets": model.GADGETS,
+                "disposicions": model.DISPOSICIONS,
+                "accions": model.ACCIONS,
+                "accions_sistema": list(model.ACCIONS_SISTEMA),
+                "temes": model.TEMES,
+                "pantalla": model.PANTALLA,
+                "limits": {
+                    "pantalles": model.MAX_PANTALLES,
+                    "gadgets": model.MAX_GADGETS,
+                    "botons": model.MAX_BOTONS,
+                    "nom": model.MAX_NOM,
+                    "etiqueta": model.MAX_ETIQUETA,
+                    "apps": model.MAX_APPS,
+                },
+            })
+        elif path == "/api/exporta":
+            # Configuracio portable (sense port ni res d'aquest ordinador).
+            self._send(200,
+                       json.dumps(model.exporta(BRIDGE.config),
+                                  ensure_ascii=False, indent=2),
+                       "application/json; charset=utf-8")
+        elif path == "/api/elements":
+            # Elements tipats d'una pantalla (els fa servir l'editor).
+            try:
+                idx = int(urlparse(self.path).query.split("=")[-1] or 0)
+            except ValueError:
+                idx = 0
+            self._json({"elements": model.elements_de(BRIDGE.config, idx)})
         elif path == "/api/apps":
             # Apps instal·lades al Mac amb la seva icona (per poder-les
             # assignar a botons). Es un endpoint a part perque recorre les
@@ -125,17 +159,35 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             cfg = body.get("config")
             if isinstance(cfg, dict):
-                BRIDGE.config = cfg
-                save_config(cfg)
+                # El model valida, arrodoneix i migra: el que es desa i el que
+                # s'envia a la placa es SEMPRE el que torna normalitza().
+                ok, problemes = model.valida(cfg)
+                desat = save_config(cfg)
+                BRIDGE.config = desat
                 sent = BRIDGE.send_config()
                 if sent:
                     BRIDGE.log("configuracio desada i enviada a la pantalla")
                 else:
                     BRIDGE.log("configuracio desada, pero NO s'ha pogut enviar (sense connexio?)")
                 self._json({"ok": True, "sent": bool(sent),
-                            "connected": BRIDGE.is_connected(), "config": cfg})
+                            "avisos": [] if ok else problemes,
+                            "connected": BRIDGE.is_connected(), "config": desat})
             else:
                 self._json({"ok": False, "error": "config invalid"}, 400)
+        elif path == "/api/importa":
+            # Configuracio portable: s'importa, es valida i es desa.
+            try:
+                nou = model.importa(body.get("config"))
+            except Exception as exc:
+                self._json({"ok": False, "error": "JSON invalid: %s" % exc}, 400)
+                return
+            ok, problemes = model.valida(nou)
+            desat = save_config(nou)
+            BRIDGE.config = desat
+            BRIDGE.send_config()
+            BRIDGE.log("configuracio importada (%d pantalles)" % len(desat["pages"]))
+            self._json({"ok": True, "avisos": [] if ok else problemes,
+                        "config": desat})
         elif path == "/api/connect":
             ok = BRIDGE.connect(body.get("port") or None)
             self._json({"ok": ok, "port": BRIDGE.port})

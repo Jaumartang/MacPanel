@@ -29,6 +29,8 @@ import urllib.request
 from collections import deque
 from datetime import datetime
 
+import panel_model          # model de dades (validacio i migracions)
+
 try:
     import serial
     from serial.tools import list_ports
@@ -370,7 +372,12 @@ def idle_seconds():
 
 
 def load_config():
-    """Carrega panel_config.json (o els valors per defecte)."""
+    """Carrega panel_config.json (o els valors per defecte).
+
+    Passa pel model (mac/panel_model.py): valida, arrodoneix i migra el format.
+    Aixi una configuracio vella (sense `version`) o amb un camp espatllat
+    funciona igual, sense haver de tocar res a ma.
+    """
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
@@ -378,16 +385,20 @@ def load_config():
             if isinstance(cfg, dict):
                 base = json.loads(json.dumps(DEFAULT_CONFIG))
                 base.update(cfg)
-                return base
+                return panel_model.normalitza(base)
         except Exception:
             pass
-    return json.loads(json.dumps(DEFAULT_CONFIG))
+    return panel_model.normalitza(json.loads(json.dumps(DEFAULT_CONFIG)))
 
 
 def save_config(cfg):
-    """Desa la configuracio a panel_config.json."""
-    with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    """Desa la configuracio a panel_config.json (validada i migrada).
+
+    Torna la configuracio que s'ha desat de debò: potser el model ha arreglat
+    o retallat alguna cosa, i qui ens ha cridat ha de veure el mateix que hi ha
+    al disc.
+    """
+    return panel_model.desa(CONFIG_PATH, cfg)
 
 def list_icons():
     """Noms de les icones disponibles (Assets/icons/*.png i Assets/icons/bin/*.bin)."""

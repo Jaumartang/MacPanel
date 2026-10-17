@@ -121,6 +121,64 @@
                  border-radius: 6px; padding: 2px; }
   .palette img:hover { background: var(--card2); outline: 1px solid var(--accent); }
   .palette .hint { color: var(--dim); font-size: 11px; align-self: center; padding: 0 6px; }
+  /* --- Editor visual (pestanya Pantalles) --------------------------------- *
+   * L'esquerra es el SIMULADOR de la pantalla de debò: mateixa mida, mateixa
+   * orientacio i les mateixes regles de repartiment que el firmware
+   * (src/ui.cpp). No es un canvas: son elements posicionats en absolut, i per
+   * aixo es pot clicar cada element per seleccionar-lo i editar-lo.
+   * La dreta son la biblioteca (que hi pots posar) i les propietats (del que
+   * tens seleccionat). */
+  #editor { display: grid; grid-template-columns: auto 340px; gap: 14px; align-items: start; }
+  @media (max-width: 1000px) { #editor { grid-template-columns: 1fr; } }
+  .simwrap { background: var(--bg); border: 1px solid var(--edge); border-radius: 12px;
+             padding: 12px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .simbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+            justify-content: center; width: 100%; }
+  #sim { position: relative; background: #0b0f14; border-radius: 10px; overflow: hidden;
+         box-shadow: 0 12px 34px rgba(0,0,0,.5); flex: none; }
+  #sim .capa { position: absolute; inset: 0; }
+  #sim .fx { position: absolute; border-radius: 5px; }
+  #sim .fx.hdr { background: #d7e3ef; border-bottom: 1px solid #9fb2c6; }
+  #sim .fx.nav { background: #cfdae6; border-top: 1px solid #9fb2c6; }
+  #sim .fx.card { background: #e7eef6; border: 1px solid #b9c8d8; }
+  #sim .fx.gauge { border: 3px solid #b9c8d8; border-radius: 50%; background: #eef4fa; }
+  #sim .fx.txt { color: #46586c; font-size: 10px; line-height: 1; overflow: hidden;
+                 display: flex; align-items: center; justify-content: center; }
+  #sim .fx.ico { object-fit: contain; }
+  #sim .fx.boto { background: #e7eef6; border: 1px solid #b9c8d8; display: flex;
+                  flex-direction: column; align-items: center; justify-content: center;
+                  gap: 2px; font-size: 9px; color: #3a4b5e; overflow: hidden; }
+  #sim .fx.boto img { width: 60%; height: 42%; object-fit: contain; }
+  #sim .fx.boto span { max-width: 96%; overflow: hidden; text-overflow: ellipsis;
+                       white-space: nowrap; }
+  #sim .fx.ocult { opacity: .35; border-style: dashed; }
+  #sim .fx.pot { cursor: pointer; }
+  #sim .fx.pot:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #sim .fx.sel { outline: 3px solid var(--accent); outline-offset: -1px; z-index: 3; }
+  #sim .fx.drag { opacity: .4; }
+  #sim .fx.drop { outline: 3px dashed var(--ok); outline-offset: -1px; }
+  #sim .graella { position: absolute; inset: 0; pointer-events: none; opacity: .5;
+                  background-image: linear-gradient(to right, rgba(42,212,255,.25) 1px, transparent 1px),
+                                    linear-gradient(to bottom, rgba(42,212,255,.25) 1px, transparent 1px); }
+  #sim .etiquetaSel { position: absolute; background: var(--accent); color: #04222b;
+                      font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px;
+                      pointer-events: none; white-space: nowrap; z-index: 4; }
+  .sidepanel { display: flex; flex-direction: column; gap: 10px; }
+  .subtabs { display: flex; gap: 4px; }
+  .subtabs button { flex: 1; background: var(--card2); border: 1px solid var(--edge);
+                    border-radius: 8px; padding: 7px 8px; color: var(--dim); }
+  .subtabs button.on { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .llib { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .llib button { text-align: left; padding: 8px 9px; font-size: 12px; }
+  .llib button.usat { opacity: .4; }
+  .camp { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+  .camp label { font-size: 11px; color: var(--dim); text-transform: uppercase;
+                letter-spacing: .5px; }
+  .camp input, .camp select { width: 100%; }
+  .buit { color: var(--dim); font-size: 12px; text-align: center; padding: 18px 6px;
+          border: 1px dashed var(--edge); border-radius: 9px; }
+  .avis { background: rgba(255,204,77,.12); border: 1px solid var(--warn);
+          color: var(--warn); border-radius: 9px; padding: 7px 10px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -366,10 +424,18 @@
   </section>
 
   <section id="s-preview" class="ampla">
-    <h2>Previsualitzacio</h2>
-    <div id="preview" style="display:flex;justify-content:center"></div>
-    <p class="muted">Aproximacio de la pantalla de la placa (pestanyes a baix).
-       Els colors son els del tema triat.</p>
+    <h2>Editor de la pantalla</h2>
+    <div id="editor">
+      <div class="simwrap">
+        <div class="simbar" id="simbar"></div>
+        <div id="sim"></div>
+        <p class="muted" id="simpeu"></p>
+      </div>
+      <div class="sidepanel">
+        <div class="subtabs" id="subtabs"></div>
+        <div id="panellCostat"></div>
+      </div>
+    </div>
   </section>
 </main>
 
@@ -882,172 +948,10 @@ function temaPreview() {
   return TEMES_PV[t];
 }
 
+/* El simulador de l'editor FA de previsualitzacio: ja no hi ha un canvas a
+ * part. Es conserva el nom perque mig panell hi crida per refrescar-ho tot. */
 function renderPreview() {
-  const box = document.getElementById("preview");
-  box.innerHTML = "";
-  const horiz = (cfg.orientation === "h");
-  const W = horiz ? 480 : 320;
-  const H = horiz ? 320 : 480;
-  const S = horiz ? 0.62 : 0.5;
-  const page = curPg();
-  const pv = temaPreview();
-  const tabH = (cfg.pages.length > 1) ? 34 : 0;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = W; canvas.height = H;
-  canvas.style.width = (W * S) + "px";
-  canvas.style.height = (H * S) + "px";
-  canvas.style.border = "1px solid #2c3746";
-  canvas.style.borderRadius = "10px";
-  const g = canvas.getContext("2d");
-  g.fillStyle = pv.bg2; g.fillRect(0, 0, W, H);
-  g.font = "15px -apple-system, sans-serif";
-
-  g.fillStyle = pv.card; g.fillRect(0, 0, W, 30);
-  g.fillStyle = pv.text; g.fillText((state.stats || {}).time || "--:--", 6, 21);
-  g.fillStyle = pv.dim; g.textAlign = "center";
-  g.fillText((state.stats || {}).host || "Mac", W / 2, 21);
-  g.textAlign = "right";
-  g.fillStyle = state.connected ? pv.ok : pv.bad;
-  g.fillText(state.connected ? "LINK" : "NO LINK", W - 6, 21);
-  g.textAlign = "left";
-
-  let y = 30;
-  const isNumpad = page.layout === "numpad";
-  const isGauges = page.layout === "gauges";
-  const isClock  = page.layout === "clock";
-  const bottomBtns = isGauges || isClock;
-  const btnArea = bottomBtns ? 62 : 0;
-  const contentBot = H - tabH - btnArea;
-
-  if (isGauges) {
-    let gs = (page.widgets || []).filter(w => ["cpu", "mem", "disk", "bat"].includes(w)).slice(0, 4);
-    if (!gs.length) gs = ["cpu", "mem"];
-    const gcols = gs.length > 1 ? 2 : 1;
-    const grows = Math.ceil(gs.length / gcols);
-    const cw = W / gcols, ch = (contentBot - 30) / grows;
-    const r = Math.max(18, Math.min(58, Math.min(cw, ch) / 2 - 14));
-    gs.forEach((wid, i) => {
-      const cx = (i % gcols) * cw + cw / 2;
-      const cy = 30 + Math.floor(i / gcols) * ch + ch / 2 - 6;
-      const pct = Math.max(0, previewPct(wid));
-      g.fillStyle = pv.card; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
-      g.lineWidth = 7;
-      g.strokeStyle = pv.edge; g.beginPath();
-      g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 2.25); g.stroke();
-      g.strokeStyle = pct >= 90 ? pv.bad : pct >= 70 ? pv.warn : pv.ok;
-      g.beginPath(); g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * pct / 100); g.stroke();
-      g.lineWidth = 1;
-      g.fillStyle = pv.text; g.textAlign = "center"; g.font = "16px -apple-system,sans-serif";
-      g.fillText(pct + "%", cx, cy + 5);
-      g.fillStyle = pv.dim; g.font = "12px -apple-system,sans-serif";
-      g.fillText(wid.toUpperCase(), cx, cy + r + 13);
-      g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
-    });
-  } else if (isClock) {
-    const s = state.stats || {};
-    g.textAlign = "center";
-    g.fillStyle = pv.text; g.font = "44px -apple-system, sans-serif";
-    g.fillText(s.time || "--:--", W / 2, 30 + (contentBot - 30) / 3);
-    g.font = "17px -apple-system, sans-serif"; g.fillStyle = pv.dim;
-    g.fillText(((s.wd || "") + "  " + (s.date || "")).trim(), W / 2, 30 + (contentBot - 30) / 3 + 32);
-    g.textAlign = "left"; g.font = "15px -apple-system, sans-serif";
-    const im = getIconImg(weatherIconJs());
-    const isz = 44;
-    const iy = 30 + (contentBot - 30) * 2 / 3;
-    if (im && im.complete && im.naturalWidth) g.drawImage(im, W / 2 - isz / 2, iy - isz / 2, isz, isz);
-    g.fillStyle = pv.text; g.textAlign = "center"; g.font = "18px -apple-system,sans-serif";
-    g.fillText(Math.round(s.temp || 0) + " C", W / 2, iy + isz / 2 + 20);
-    g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
-  } else if (page.layout === "tabs" || page.layout === "favs") {
-    // La llista (pestanyes o favorits) la posa el Mac en viu (requereix placa):
-    // a la previsio mostrem un exemple de com quedaran (favicon + titol).
-    g.fillStyle = pv.dim; g.font = "13px -apple-system,sans-serif";
-    g.fillText(page.layout === "favs" ? "Barra de favorits dels navegadors:"
-                                      : "Pestanyes del navegador obert:", 8, y + 6);
-    y += 26;
-    const exemples = [
-      { nom: "exemple1", titol: "pestanya 1" }, { nom: "exemple2", titol: "pestanya 2" },
-      { nom: "exemple3", titol: "pestanya 3" }, { nom: "exemple4", titol: "pestanya 4" },
-    ];
-    const cols = 2, cellW = (W - 6) / cols, cellH = 62;
-    exemples.forEach((ex, i) => {
-      const cx = 3 + (i % cols) * cellW, cy = y + Math.floor(i / cols) * (cellH + 4);
-      g.fillStyle = pv.card; roundRect(g, cx + 2, cy, cellW - 4, cellH, 8); g.fill();
-      const im = getIconImg(ex.nom); const isz = 26;
-      if (im && im.complete && im.naturalWidth) g.drawImage(im, cx + cellW / 2 - isz / 2, cy + 7, isz, isz);
-      g.fillStyle = pv.text; g.textAlign = "center"; g.font = "12px -apple-system,sans-serif";
-      g.fillText(ex.titol, cx + cellW / 2, cy + cellH - 9);
-      g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
-    });
-    y += Math.ceil(exemples.length / cols) * (cellH + 4);
-  } else if (page.layout === "status") {
-    for (const w of (page.widgets || [])) {
-      g.fillStyle = pv.card; roundRect(g, 6, y + 2, W - 12, 30, 6); g.fill();
-      g.fillStyle = pv.dim; g.fillText(w.toUpperCase(), 14, y + 20);
-      g.fillStyle = pv.text; g.textAlign = "right";
-      g.fillText(previewValue(w), W - 14, y + 20);
-      g.textAlign = "left";
-      const pct = previewPct(w);
-      if (pct >= 0) {
-        g.fillStyle = pv.edge; g.fillRect(14, y + 24, W - 28, 5);
-        g.fillStyle = pct >= 90 ? pv.bad : pct >= 70 ? pv.warn : pv.ok;
-        g.fillRect(14, y + 24, (W - 28) * pct / 100, 5);
-      }
-      y += 34;
-    }
-  }
-
-  let btns, cols;
-  if (isNumpad) {
-    btns = ["7", "8", "9", "-", "4", "5", "6", "+", "1", "2", "3", "*", "DEL", "0", ".", "OK"]
-      .map(l => ({ label: l, icon: "", enabled: true }));
-    cols = 4;
-  } else {
-    btns = (page.buttons || []).filter(b => b.enabled);
-    cols = 3;
-  }
-  const gap = 6, pad = 6;
-  const cellW = (W - pad * (cols + 1)) / cols;
-  const top = bottomBtns ? (contentBot + pad) : (y + pad);
-  const avail = (bottomBtns ? btnArea : (H - tabH - top - pad)) - pad;
-  const rowsN = Math.max(1, Math.ceil(btns.length / cols));
-  let cellH = (avail - (rowsN - 1) * gap) / rowsN;
-  cellH = Math.min(bottomBtns ? 50 : 90, Math.max(24, cellH));
-  btns.forEach((b, i) => {
-    const cx = pad + (i % cols) * (cellW + gap);
-    const cy = top + Math.floor(i / cols) * (cellH + gap);
-    g.fillStyle = pv.card; roundRect(g, cx, cy, cellW, cellH, 8); g.fill();
-    g.strokeStyle = pv.edge; g.stroke();
-    const img = getIconImg(b.icon);
-    const isz = Math.min(30, Math.max(10, cellH - 20));
-    if (img && img.complete && img.naturalWidth) {
-      g.drawImage(img, cx + cellW / 2 - isz / 2, cy + 3, isz, isz);
-      g.fillStyle = pv.text; g.textAlign = "center";
-      g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH - 4);
-    } else {
-      g.fillStyle = pv.text; g.textAlign = "center";
-      g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH / 2 + 5);
-    }
-    g.textAlign = "left";
-  });
-
-  if (tabH) {
-    const ty = H - tabH;
-    g.fillStyle = pv.card; g.fillRect(0, ty, W, tabH);
-    const tw = W / cfg.pages.length;
-    cfg.pages.forEach((p, i) => {
-      if (i === curPage) {
-        g.fillStyle = pv.accent; roundRect(g, i * tw + 2, ty + 3, tw - 4, tabH - 6, 6); g.fill();
-      }
-      g.fillStyle = (i === curPage) ? pv.text : pv.dim;
-      g.textAlign = "center";
-      g.fillText((p.name || "?").slice(0, Math.max(1, Math.floor((tw - 10) / 6))), i * tw + tw / 2, ty + tabH / 2 + 5);
-      g.textAlign = "left";
-    });
-  }
-
-  box.appendChild(canvas);
+  renderEditor();
 }
 
 function renderStats() {
@@ -1605,6 +1509,511 @@ function renderAppGrid() {
   }
 }
 
+/* --- Editor visual de la pantalla ---------------------------------------- *
+ * L'esquerra es el SIMULADOR: mateixa mida, orientacio i regles de repartiment
+ * que el firmware (layout() a src/ui.cpp). La dreta son la biblioteca i les
+ * propietats de l'element seleccionat.
+ *
+ * La geometria NO s'inventa aqui: son les mateixes formules i les mateixes
+ * constants que fa servir el firmware (marcades amb el seu nom). Si alla
+ * canvien, aixo tambe.
+ */
+
+const F = { HEADER: 30, NAV: 20, PAD: 6, ROW_H: 34, BTN_COLS: 3, BTN_GAP: 6,
+            MIN_BTN_H: 20, MAX_BTN_H: 90, GAUGE_BTN_H: 50 };
+
+let MODEL = null;                          /* cataleg (GET /api/model) */
+const editor = { sel: null, graella: false, costat: "props", zoom: 1 };
+
+async function carregaModel() {
+  if (!MODEL) MODEL = await api("/api/model");
+  return MODEL;
+}
+
+/* Les mateixes comptes que layout() de src/ui.cpp. */
+function geometria(pg, W, H) {
+  const nav = (cfg.nav === "bar" || cfg.nav === "both");
+  const contentTop = F.HEADER;
+  const contentBot = H - (nav ? F.NAV : 0);
+  const cols = (pg.layout === "numpad") ? 4
+             : (["launcher", "tabs", "favs"].indexOf(pg.layout) >= 0 ? 2 : F.BTN_COLS);
+  const n = (pg.buttons || []).length;
+  const rows = Math.max(1, Math.ceil(n / cols));
+  const cellW = Math.floor((W - F.PAD * (cols + 1)) / cols);
+  const gapTotal = (rows - 1) * F.BTN_GAP;
+
+  let rowCount = (pg.layout === "status") ? (pg.widgets || []).length : 0;
+  let rowH = F.ROW_H;
+  if (rowCount > 0 && n > 0) {
+    const btnNeed = rows * F.MIN_BTN_H + gapTotal + 2 * F.PAD;
+    while (rowH > 20 && ((contentBot - contentTop) - rowCount * rowH) < btnNeed) rowH -= 2;
+  }
+  let y = contentTop;
+  const files = [];
+  for (let i = 0; i < rowCount; i++) { files.push({ y: y, h: rowH }); y += rowH; }
+
+  let btnTop, cellH;
+  const gran = ["gauges", "clock", "graph"].indexOf(pg.layout) >= 0;
+  if (gran) {
+    cellH = F.GAUGE_BTN_H;
+    btnTop = n ? (contentBot - rows * (cellH + F.BTN_GAP)) : (contentBot - 1);
+  } else if (n > 0) {
+    btnTop = y + F.PAD;
+    if (btnTop > contentBot - F.MIN_BTN_H - F.PAD) btnTop = contentBot - F.MIN_BTN_H - F.PAD;
+    const availH = contentBot - btnTop - F.PAD;
+    cellH = Math.floor((availH - gapTotal) / rows);
+    if (cellH < F.MIN_BTN_H) cellH = F.MIN_BTN_H;
+    if (cellH > F.MAX_BTN_H) cellH = F.MAX_BTN_H;
+  } else {
+    btnTop = contentBot - 1;
+    cellH = F.MIN_BTN_H;
+  }
+  return { cols: cols, rows: rows, cellW: cellW, cellH: cellH, btnTop: btnTop,
+           files: files, contentTop: contentTop, contentBot: contentBot,
+           nav: nav, rowH: rowH };
+}
+
+/* Els gauges: un de gros a dalt i la resta en fila, com a drawGauges(). */
+function geometriaGauges(pg, W, H, contentTop, contentBot) {
+  const gads = (pg.widgets || []).filter(w => ["cpu", "mem", "disk", "bat"].indexOf(w) >= 0);
+  const out = [];
+  if (!gads.length) return out;
+  if (gads.length === 4) {
+    const HH = contentBot - contentTop;
+    let heroR = Math.floor(W / 2) - 34;
+    const maxHero = Math.floor(HH * 46 / 100 / 2);
+    if (heroR > maxHero) heroR = maxHero;
+    if (heroR < 32) heroR = 32;
+    out.push({ id: gads[0], cx: Math.floor(W / 2), cy: contentTop + heroR + 18, r: heroR });
+    const cell = Math.floor(W / 3);
+    let smallR = Math.floor(cell / 2) - 10;
+    const maxSmall = Math.floor(HH * 26 / 100 / 2);
+    if (smallR > maxSmall) smallR = maxSmall;
+    if (smallR < 20) smallR = 20;
+    const smallCy = contentBot - smallR - 30;
+    for (let i = 1; i < 4; i++) {
+      out.push({ id: gads[i], cx: (i - 1) * cell + Math.floor(cell / 2),
+                 cy: smallCy, r: smallR });
+    }
+  } else {
+    const cols = (gads.length === 1) ? 1 : (gads.length === 3 ? 3 : 2);
+    const rows = Math.ceil(gads.length / cols);
+    const cw = Math.floor(W / cols);
+    const ch = Math.floor((contentBot - contentTop) / rows);
+    const maxR = (gads.length === 1) ? 108 : 72;
+    let r = Math.floor(Math.min(cw, ch) / 2) - 10;
+    if (r < 24) r = 24;
+    if (r > maxR) r = maxR;
+    for (let i = 0; i < gads.length; i++) {
+      out.push({ id: gads[i], cx: (i % cols) * cw + Math.floor(cw / 2),
+                 cy: contentTop + Math.floor(i / cols) * ch + Math.floor(ch / 2) - 8, r: r });
+    }
+  }
+  return out;
+}
+
+
+/* --- Simulador ------------------------------------------------------------ */
+
+function fx(capa, x, y, w, h, classe, contingut, clic) {
+  const n = el("div", { class: "fx " + classe,
+                        style: "left:" + x + "px;top:" + y + "px;width:" + w +
+                               "px;height:" + h + "px" });
+  if (contingut) n.appendChild(contingut);
+  if (clic) {
+    n.classList.add("pot");
+    n.addEventListener("click", (e) => { e.stopPropagation(); clic(); });
+  }
+  capa.appendChild(n);
+  return n;
+}
+
+function etiquetaGadget(id) {
+  const g = (MODEL && MODEL.gadgets && MODEL.gadgets[id]) || {};
+  return g.nom || id;
+}
+
+/* Pinta el simulador de la pantalla actual. */
+function renderEditor() {
+  const sim = document.getElementById("sim");
+  if (!sim || !cfg.pages || !cfg.pages.length) return;
+  const horiz = (cfg.orientation === "h");
+  const W = horiz ? 480 : 320;
+  const H = horiz ? 320 : 480;
+  const z = editor.zoom || 1;
+
+  sim.style.width = (W * z) + "px";
+  sim.style.height = (H * z) + "px";
+  sim.innerHTML = "";
+
+  const capa = el("div", { class: "capa",
+                           style: "width:" + W + "px;height:" + H +
+                                  "px;transform:scale(" + z + ");transform-origin:0 0" });
+  capa.addEventListener("click", () => { editor.sel = null; renderEditor(); });
+  sim.appendChild(capa);
+
+  const pg = curPg();
+  const g = geometria(pg, W, H);
+
+  /* Fons, capcalera i barra de navegacio (les peces fixes). */
+  fx(capa, 0, 0, W, H, "card", null, null).style.background = "#dfe8f1";
+  fx(capa, 0, 0, W, F.HEADER, "hdr", null, null);
+  const hora = el("div", { class: "fx txt",
+                           style: "left:44px;top:8px;width:52px;height:14px" }, "12:00");
+  capa.appendChild(hora);
+  fx(capa, W - 78, 7, 70, 16, "card", null, null);
+  if (g.nav) {
+    fx(capa, 0, H - F.NAV, W, F.NAV, "nav", null, null);
+    const nP = Math.max(1, (cfg.pages || []).length);
+    for (let i = 0; i < nP; i++) {
+      const tw = Math.floor(W / nP);
+      const t = fx(capa, i * tw, H - F.NAV + 3, tw - 2, F.NAV - 6, "txt",
+                   document.createTextNode((cfg.pages[i].name || "?").slice(0, 12)), null);
+      t.style.fontSize = "9px";
+      if (i === curPage) t.style.background = "#c3d2e0";
+    }
+  }
+
+  /* Contingut de la pantalla segons la disposicio. */
+  if (pg.layout === "gauges") {
+    geometriaGauges(pg, W, H, g.contentTop, g.contentBot).forEach((c) => {
+      const n = fx(capa, c.cx - c.r, c.cy - c.r, 2 * c.r, 2 * c.r, "gauge", null,
+                   () => { editor.sel = { tipus: "gadget", id: c.id }; renderEditor(); });
+      const t = el("span", { class: "fx txt",
+                             style: "left:0;top:45%;width:100%;height:14px;font-size:12px" },
+                   previewValue(c.id) || etiquetaGadget(c.id));
+      n.appendChild(t);
+    });
+  } else if (pg.layout === "clock") {
+    const c = fx(capa, Math.floor(W / 2) - 60, g.contentTop + 18, 120, 44, "txt", null, null);
+    c.textContent = "14:32";
+    c.style.fontSize = "28px";
+  } else if (["status", "buttons"].indexOf(pg.layout) >= 0) {
+    (pg.widgets || []).forEach((w, i) => {
+      if (i >= g.files.length) return;
+      const f = g.files[i];
+      const n = fx(capa, F.PAD, f.y + 2, W - 2 * F.PAD, f.h - 4, "card", null,
+                   () => { editor.sel = { tipus: "gadget", id: w }; renderEditor(); });
+      n.appendChild(el("span", { class: "fx txt",
+                                 style: "left:8px;top:0;width:60%;height:100%;justify-content:flex-start" },
+                       etiquetaGadget(w)));
+      n.appendChild(el("span", { class: "fx txt",
+                                 style: "right:10px;top:0;height:100%" },
+                       previewValue(w)));
+    });
+  } else {
+    capa.appendChild(el("div", { class: "fx txt",
+                                 style: "left:0;top:" + Math.floor((H - F.HEADER) / 2) +
+                                        "px;width:100%;height:20px" },
+                       "(les dades les posa el Mac)"));
+  }
+
+  /* Botons. */
+  (pg.buttons || []).forEach((b, i) => {
+    const col = i % g.cols;
+    const row = Math.floor(i / g.cols);
+    const x = F.PAD + col * (g.cellW + F.PAD);
+    const y = g.btnTop + row * (g.cellH + F.BTN_GAP);
+    const n = fx(capa, x, y, g.cellW, g.cellH, "boto" + (b.on === false ? " ocult" : ""), null,
+                 () => { editor.sel = { tipus: "boto", index: i }; renderEditor(); });
+    if (b.icon) n.appendChild(el("img", { class: "ico", src: "/icons/" + b.icon + ".png", alt: "" }));
+    n.appendChild(el("span", {}, b.label || b.id));
+    n.dataset.index = i;
+    n.draggable = true;
+    n.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("text/plain", "boto:" + i);
+      n.classList.add("drag");
+    });
+    n.addEventListener("dragend", () => n.classList.remove("drag"));
+    n.addEventListener("dragover", (e) => { e.preventDefault(); n.classList.add("drop"); });
+    n.addEventListener("dragleave", () => n.classList.remove("drop"));
+    n.addEventListener("drop", (e) => {
+      e.preventDefault();
+      n.classList.remove("drop");
+      const dades = e.dataTransfer.getData("text/plain") || "";
+      if (dades.indexOf("boto:") === 0) {
+        canviaOrdreBoto(parseInt(dades.slice(5), 10), i);
+      } else if (dades.indexOf("icon:") === 0) {
+        b.icon = dades.slice(5);
+        renderAll();
+      }
+    });
+  });
+
+  if (editor.graella) {
+    const gr = el("div", { class: "graella" });
+    gr.style.backgroundSize = "10px 10px";
+    sim.appendChild(gr);
+  }
+  document.querySelectorAll("#sim .fx.sel").forEach(n => n.classList.remove("sel"));
+  marcarSeleccio();
+
+  renderBarraSim(W, H);
+  renderCostat();
+}
+
+/* Marca amb un contorn l'element seleccionat del simulador. */
+function marcarSeleccio() {
+  if (!editor.sel || editor.sel.tipus !== "boto") return;
+  const i = String(editor.sel.index);
+  document.querySelectorAll("#sim .fx.boto").forEach((n) => {
+    if (n.dataset && n.dataset.index === i) n.classList.add("sel");
+  });
+}
+
+/* La barra que hi ha a sobre del simulador: mida, graella i zoom. */
+function renderBarraSim(W, H) {
+  const bar = document.getElementById("simbar");
+  if (!bar) return;
+  bar.innerHTML = "";
+  bar.appendChild(el("span", { class: "pill" }, W + " x " + H + " px · " +
+    (cfg.orientation === "h" ? "horitzontal" : "vertical")));
+  bar.appendChild(el("button", { class: "ghost",
+                                 onclick: () => { editor.graella = !editor.graella; renderEditor(); } },
+    editor.graella ? "Graella: si" : "Graella: no"));
+  [1, 0.75, 0.5].forEach((z) => {
+    bar.appendChild(el("button", { class: "ghost" + (editor.zoom === z ? " primary" : ""),
+                                   onclick: () => { editor.zoom = z; renderEditor(); } },
+      Math.round(z * 100) + "%"));
+  });
+  const peu = document.getElementById("simpeu");
+  if (peu) {
+    peu.textContent = "Simulador de la pantalla de debo: mateixes mides i regles que la placa. " +
+                      "Clica un element per editar-lo i arrossega'ls per canviar-los d'ordre.";
+  }
+}
+
+/* --- Panell de la dreta: biblioteca i propietats -------------------------- */
+
+function renderCostat() {
+  const box = document.getElementById("panellCostat");
+  const tabs = document.getElementById("subtabs");
+  if (!box || !tabs) return;
+  tabs.innerHTML = "";
+  [["props", "Propietats"], ["llib", "Biblioteca"], ["pant", "Pantalla"]].forEach(([id, nom]) => {
+    tabs.appendChild(el("button", { class: editor.costat === id ? "on" : "",
+                                    onclick: () => { editor.costat = id; renderCostat(); } }, nom));
+  });
+  box.innerHTML = "";
+  if (editor.costat === "llib") renderBiblioteca(box);
+  else if (editor.costat === "pant") renderPropietatsPantalla(box);
+  else renderPropietats(box);
+}
+
+function renderBiblioteca(box) {
+  const pg = curPg();
+  box.appendChild(el("p", { class: "muted" },
+    "Clica un element per afegir-lo a aquesta pantalla, o arrossega'l sobre el simulador."));
+  box.appendChild(el("h2", {}, "Gadgets"));
+  const lg = el("div", { class: "llib" });
+  const gads = (MODEL && MODEL.gadgets) || {};
+  Object.keys(gads).forEach((id) => {
+    const usat = (pg.widgets || []).indexOf(id) >= 0;
+    lg.appendChild(el("button", { class: usat ? "usat" : "",
+                                  draggable: "true",
+                                  onclick: () => afegeixGadget(id) },
+      gads[id].nom + (usat ? "  ✓" : "")));
+  });
+  box.appendChild(lg);
+  box.appendChild(el("h2", {}, "Botons"));
+  const lb = el("div", { class: "llib" });
+  const acc = (MODEL && MODEL.accions_sistema) || [];
+  acc.forEach((id) => {
+    lb.appendChild(el("button", { onclick: () => afegeixBoto(id) }, id));
+  });
+  box.appendChild(lb);
+  box.appendChild(el("p", { class: "muted" },
+    "Per afegir aplicacions del Mac, fes servir la pestanya \"Apps i icones\": " +
+    "clicant una app s'hi afegeix un boto."));
+}
+
+function renderPropietats(box) {
+  const pg = curPg();
+  if (!editor.sel) {
+    box.appendChild(el("div", { class: "buit" },
+      "No hi ha res seleccionat. Clica un element del simulador."));
+    box.appendChild(el("h2", {}, "Aquesta pantalla"));
+    box.appendChild(el("p", { class: "muted" },
+      (pg.name || "?") + " · " + (MODEL && MODEL.disposicions[pg.layout]
+        ? MODEL.disposicions[pg.layout].nom : pg.layout)));
+    box.appendChild(el("p", { class: "muted" },
+      (pg.widgets || []).length + " gadgets · " + (pg.buttons || []).length + " botons"));
+    return;
+  }
+  if (editor.sel.tipus === "gadget") return renderPropietatsGadget(box, editor.sel.id);
+  return renderPropietatsBoto(box, editor.sel.index);
+}
+
+function renderPropietatsGadget(box, id) {
+  const pg = curPg();
+  const i = (pg.widgets || []).indexOf(id);
+  box.appendChild(el("h2", {}, "Gadget"));
+  box.appendChild(el("div", { class: "camp" },
+    el("label", {}, "Tipus"),
+    el("input", { value: etiquetaGadget(id), readonly: "readonly" })));
+  box.appendChild(el("p", { class: "muted" },
+    "Els gadgets nomes surten a les pantalles de \"Gadgets + botons\" (files) " +
+    "i a \"Gauges circulars\" (CPU, RAM, Disc i Bateria)."));
+  box.appendChild(el("div", { class: "row" },
+    el("button", { class: "icon ghost", title: "Puja", onclick: () => mouElement(pg.widgets, i, -1) }, "▲"),
+    el("button", { class: "icon ghost", title: "Baixa", onclick: () => mouElement(pg.widgets, i, +1) }, "▼"),
+    el("button", { onclick: () => treuGadget(id) }, "Treu el gadget")));
+}
+
+function renderPropietatsBoto(box, index) {
+  const pg = curPg();
+  const b = (pg.buttons || [])[index];
+  if (!b) { editor.sel = null; return renderPropietats(box); }
+  const actualitza = () => { renderEditor(); renderButtons(); };
+
+  box.appendChild(el("h2", {}, "Boto"));
+  const c1 = el("div", { class: "camp" }, el("label", {}, "Etiqueta"));
+  const inEt = el("input", { value: b.label || "",
+                             maxlength: (MODEL && MODEL.limits.etiqueta) || 23 });
+  inEt.addEventListener("input", () => { b.label = inEt.value; b.customLabel = true; actualitza(); });
+  c1.appendChild(inEt);
+  box.appendChild(c1);
+
+  const c2 = el("div", { class: "camp" }, el("label", {}, "Accio"));
+  const inAc = el("input", { value: b.id || "" });
+  inAc.addEventListener("change", () => { b.id = inAc.value.trim(); actualitza(); });
+  c2.appendChild(inAc);
+  box.appendChild(c2);
+  box.appendChild(el("p", { class: "muted" },
+    "Una accio es: app:<bundle>, fav:<n>, tecla:<nom>, focus:<n> o una de les " +
+    "del sistema (media_play, vol_up...)."));
+
+  const c3 = el("div", { class: "camp" }, el("label", {}, "Icona"));
+  const selIco = el("select");
+  selIco.appendChild(el("option", { value: "" }, "(sense icona)"));
+  for (const k of (state.icons || [])) {
+    selIco.appendChild(el("option", Object.assign({ value: k },
+      k === b.icon ? { selected: "selected" } : {}), k));
+  }
+  selIco.addEventListener("change", () => { b.icon = selIco.value; actualitza(); });
+  c3.appendChild(selIco);
+  box.appendChild(c3);
+
+  if (String(b.id || "").indexOf("tecla:") === 0) {
+    const c4 = el("div", { class: "camp" }, el("label", {}, "Tecles"));
+    const inK = el("input", { value: b.keys || "" });
+    inK.addEventListener("input", () => { b.keys = inK.value.trim(); b.customKeys = true; });
+    c4.appendChild(inK);
+    box.appendChild(c4);
+  }
+
+  const c5 = el("div", { class: "row" },
+    el("input", Object.assign({ type: "checkbox" }, b.on === false ? {} : { checked: "checked" })),
+    el("span", { class: "name" }, "Visible a la pantalla"));
+  c5.firstChild.addEventListener("change", () => {
+    b.on = c5.firstChild.checked;
+    actualitza();
+  });
+  box.appendChild(c5);
+
+  box.appendChild(el("div", { class: "row" },
+    el("button", { class: "icon ghost", title: "Mou abans",
+                   onclick: () => canviaOrdreBoto(index, index - 1) }, "◀"),
+    el("button", { class: "icon ghost", title: "Mou despres",
+                   onclick: () => canviaOrdreBoto(index, index + 1) }, "▶"),
+    el("button", { onclick: () => { pg.buttons.splice(index, 1); editor.sel = null; renderAll(); } },
+      "Treu el boto")));
+  box.appendChild(el("p", { class: "muted" },
+    "L'ordre dels botons es l'ordre de la graella (esquerra a dreta, de dalt a baix)."));
+}
+
+function renderPropietatsPantalla(box) {
+  const pg = curPg();
+  const marca = () => { renderAll(); };
+  box.appendChild(el("h2", {}, "Pantalla"));
+  const c1 = el("div", { class: "camp" }, el("label", {}, "Nom"));
+  const n = el("input", { value: pg.name || "",
+                          maxlength: (MODEL && MODEL.limits.nom) || 20 });
+  n.addEventListener("input", () => { pg.name = n.value; marca(); });
+  c1.appendChild(n);
+  box.appendChild(c1);
+
+  const c2 = el("div", { class: "camp" }, el("label", {}, "Que mostra"));
+  const ly = el("select");
+  const dis = (MODEL && MODEL.disposicions) || {};
+  Object.keys(dis).forEach((k) => {
+    ly.appendChild(el("option", Object.assign({ value: k },
+      k === pg.layout ? { selected: "selected" } : {}), dis[k].nom));
+  });
+  ly.addEventListener("change", () => { pg.layout = ly.value; marca(); });
+  c2.appendChild(ly);
+  box.appendChild(c2);
+
+  const c3 = el("div", { class: "camp" }, el("label", {}, "Icona de la pestanya"));
+  const ic = el("select");
+  ic.appendChild(el("option", { value: "" }, "(sense icona)"));
+  for (const k of (state.icons || [])) {
+    ic.appendChild(el("option", Object.assign({ value: k },
+      k === pg.icon ? { selected: "selected" } : {}), k));
+  }
+  ic.addEventListener("change", () => { pg.icon = ic.value; marca(); });
+  c3.appendChild(ic);
+  box.appendChild(c3);
+
+  const total = (pg.widgets || []).length + (pg.buttons || []).length;
+  box.appendChild(el("p", { class: "muted" }, total + " elements en aquesta pantalla."));
+  box.appendChild(el("p", { class: "muted" },
+    "El repartiment el calcula la placa: la graella de botons s'adapta al nombre " +
+    "d'elements i a la mida de la pantalla."));
+}
+
+/* --- Accions de l'editor -------------------------------------------------- */
+
+function afegeixGadget(id) {
+  const pg = curPg();
+  const max = (MODEL && MODEL.limits.gadgets) || 9;
+  if ((pg.widgets || []).indexOf(id) >= 0) return;
+  if ((pg.widgets || []).length >= max) {
+    alert("Aquesta pantalla ja te el maxim de gadgets (" + max + ").");
+    return;
+  }
+  pg.widgets = pg.widgets || [];
+  pg.widgets.push(id);
+  renderAll();
+}
+
+function afegeixBoto(accio) {
+  const pg = curPg();
+  const max = (MODEL && MODEL.limits.botons) || 15;
+  if ((pg.buttons || []).length >= max) {
+    alert("Aquesta pantalla ja te el maxim de botons (" + max + ").");
+    return;
+  }
+  pg.buttons = pg.buttons || [];
+  pg.buttons.push({ id: accio, label: accio, on: true, icon: "", keys: "" });
+  editor.sel = { tipus: "boto", index: pg.buttons.length - 1 };
+  editor.costat = "props";
+  renderAll();
+}
+
+function treuGadget(id) {
+  const pg = curPg();
+  pg.widgets = (pg.widgets || []).filter(w => w !== id);
+  editor.sel = null;
+  renderAll();
+}
+
+function mouElement(arr, i, j) {
+  if (j < 0 || j >= arr.length) return;
+  const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  renderAll();
+}
+
+function canviaOrdreBoto(desDe, a) {
+  const pg = curPg();
+  const b = pg.buttons || [];
+  if (desDe < 0 || desDe >= b.length || a < 0 || a >= b.length || desDe === a) return;
+  const t = b[desDe]; b[desDe] = b[a]; b[a] = t;
+  editor.sel = { tipus: "boto", index: a };
+  renderAll();
+}
+
+
 /* --- Arrencada del panell -------------------------------------------------- */
 
 document.getElementById("appCerca").addEventListener("input", renderAppGrid);
@@ -1625,6 +2034,11 @@ if (!pestaInicial) {
 mostraPestanya(pestaInicial || "pantalles", false);
 
 carregaApps();
+
+/* El cataleg del model (gadgets, disposicions, limits) el mana el Python: el
+ * carreguem abans de pintar l'editor, perque el simulador i la biblioteca el
+ * fan servir. */
+carregaModel().then(() => renderEditor()).catch(() => renderEditor());
 
 poll();
 setInterval(poll, 1500);

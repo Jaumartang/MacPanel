@@ -1,4 +1,5 @@
 {
+  "version": 2,
   "port": "/dev/cu.usbserial-1420",
   "refresh_ms": 1000,
   "orientation": "v",
@@ -9,11 +10,20 @@
   "standby_s": 0,
   "idle_min": 0,
   "nav": "both",
+  "notif_on": true,
+  "favs_max": 15,
+  "favs_carpetes": false,
   "pages": [
     {
+      "id": "principal",
       "name": "Principal",
       "icon": "",
       "layout": "gauges",
+      "grid": {
+        "mode": "auto",
+        "cols": 3,
+        "rows": 0
+      },
       "widgets": [
         "cpu",
         "mem",
@@ -137,9 +147,15 @@
       ]
     },
     {
+      "id": "pestanyes",
       "name": "Pestanyes",
       "icon": "spotlight",
       "layout": "tabs",
+      "grid": {
+        "mode": "auto",
+        "cols": 3,
+        "rows": 0
+      },
       "widgets": [],
       "buttons": [],
       "apps": [
@@ -147,17 +163,20 @@
       ]
     },
     {
+      "id": "favorits",
       "name": "Favorits",
       "icon": "github",
       "layout": "favs",
+      "grid": {
+        "mode": "auto",
+        "cols": 3,
+        "rows": 0
+      },
       "widgets": [],
       "buttons": [],
       "apps": [
         "com.microsoft.VSCode"
       ]
     }
-  ],
-  "notif_on": true,
-  "favs_max": 15,
-  "favs_carpetes": 0
+  ]
 }
