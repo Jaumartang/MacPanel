@@ -52,10 +52,20 @@
 int gFontAra = -1;                  /* -1 = cap de carregada encara */
 
 /* n: 0 = la mes gran (B), 1 = L, 2 = M, 3 = S. */
+/* Alcada de linia (yAdvance) de cada font, tal com surt de la seva taula:
+ * B=56, L=42, M=30, S=22. Serveix per COMPROVAR quina font hi ha carregada de
+ * debò. TFT_eSPI te les metriques de la font en variables GLOBALS, i si alguna
+ * cosa les canvia sense passar per aqui, el text surt amb la mida i la posicio
+ * d'una altra font: era el que feia sortir gargots sota la capcalera (la
+ * marquesina es pintava amb les metriques de la font gran). */
+constexpr int kFontAlcada[4] = {56, 42, 30, 22};      /* B, L, M, S */
+
 void setFontN(TFT_eSPI& t, int n)
 {
-    if (gFontAra == n) {
-        return;                     /* ja hi es: no toquem res */
+    /* La caché sola no n'hi ha prou: comprovem tambe l'alçada que te la font
+     * carregada de veritat i, si no quadra, la tornem a carregar. */
+    if (gFontAra == n && t.fontHeight() == kFontAlcada[n]) {
+        return;                     /* ja hi es */
     }
     switch (n) {
         case 0:  t.loadFont(kFontB); break;
@@ -593,6 +603,30 @@ void marqueeFade(TFT_eSPI& t)
     }
 }
 
+/* Pinta una copia del text de la marquesina a partir de 'x0'.
+ *
+ * Ho fem CARACTER A CARACTER i nomes pintem els que hi caben SENCERS. Cal
+ * fer-ho aixi perque TFT_eSPI, quan ha de pintar text que surt de la pantalla,
+ * envia al controlador una finestra d'escriptura fora de rang i els pixels
+ * següents surten pintats en un altre lloc: eren els "gargots" que apareixien
+ * sota la capcalera cada cop que la marquesina passava. */
+void marqueeCopia(TFT_eSPI& t, int x0, int y)
+{
+    const int W = Display::width();
+    int x = x0;
+    for (const char* p = gMarqText; *p != '\0'; ++p) {
+        char ch[2] = { *p, '\0' };
+        const int cw = t.textWidth(ch);
+        if (cw <= 0) {
+            continue;
+        }
+        if (x >= 0 && x + cw <= W) {
+            t.drawString(ch, x, y);
+        }
+        x += cw;
+    }
+}
+
 void drawMarquee()
 {
     TFT_eSPI& t = Display::driver();
@@ -607,9 +641,9 @@ void drawMarquee()
      *    perque la passada sigui continua, sense forats. */
     t.setTextDatum(ML_DATUM);
     t.setTextColor(COL_DIM, COL_CARD);
-    t.drawString(gMarqText, gMarqX0 - gMarqOff, H / 2);
+    marqueeCopia(t, gMarqX0 - gMarqOff, H / 2);
     if (gMarqOff > 0) {
-        t.drawString(gMarqText, gMarqX0 - gMarqOff + period, H / 2);
+        marqueeCopia(t, gMarqX0 - gMarqOff + period, H / 2);
     }
 
     /* 3) Retallem el que ha vessat: tornem a pintar els dos marges. */

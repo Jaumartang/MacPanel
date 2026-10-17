@@ -39,7 +39,11 @@ def fes(fitxer, mida, pes, caracters=CARACTERS):
     ascent, descent = f.getmetrics()
 
     glifs = []
+    vist = set()
     for ch in caracters:
+        if ord(ch) in vist:
+            continue
+        vist.add(ord(ch))
         adv = int(round(f.getlength(ch)))
         l, t, r, b = f.getbbox(ch)
         if r <= l or b <= t:                  # espai i semblants: sense tinta
@@ -50,6 +54,13 @@ def fes(fitxer, mida, pes, caracters=CARACTERS):
         ImageDraw = __import__('PIL.ImageDraw', fromlist=['Draw']).Draw
         ImageDraw(im).text((-l, -t), ch, font=f, fill=255)
         glifs.append((ord(ch), b - t, r - l, adv, ascent - t, l, im.tobytes()))
+
+    # IMPORTANT: la taula ha d'anar ORDENADA pel codi del caracter. TFT_eSPI
+    # busca els glifs amb una cerca BINARIA i, si no esta ordenada, troba el
+    # glif equivocat (o cap) i el text surt amb gargots. (Passava amb font_b,
+    # que nomes te digits i lletres soltes: '0'..'9', ':', '-', 'M', 'P', ' '
+    # no esta ordenat.)
+    glifs.sort(key=lambda g: g[0])
 
     out = bytearray()
     out += struct.pack('>6i', len(glifs), 3, ascent + descent, 0, ascent, descent)
