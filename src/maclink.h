@@ -54,6 +54,14 @@ struct Button {
     char label[16];
     char icon[20];   /* nom de la icona a /icons/<icon>.bin ("" = sense icona) */
     char keys[24];   /* combinacio de tecles BLE ("" = comanda al Mac pel serie) */
+    /* Posicio FIXA dins la graella de botons. -1 = automatica (l'ordre de la
+     * llista, com s'ha fet sempre). Si col/row son >= 0, el boto va en aquella
+     * casella i els altres l'esquiven. w/h son les caselles que ocupa (1 = una).
+     * Ho fa servir l'editor visual del panell. */
+    int8_t col;
+    int8_t row;
+    int8_t w;
+    int8_t h;
 };
 
 /* Una PANTALLA: te el seu nom, la seva icona, el tipus de disposicio i els

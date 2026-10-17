@@ -2185,7 +2185,20 @@ class Bridge:
                 icon = str(b.get("icon", ""))[:19]
                 # Les tecles: les del boto o, si no, les de l'accio d'estoc.
                 keys = str(b.get("keys", "")) or ACTIONS.get(bid, {}).get("keys", "")
-                buttons.append([bid, label, icon, keys[:23]])
+                # Posicio fixa dins la graella (opcional; la tria l'editor
+                # visual). Va com a cinque camp: "col,row,w,h". Si no hi es, la
+                # placa reparteix el boto sola, com ha fet sempre.
+                pos = b.get("pos")
+                if isinstance(pos, dict) and pos.get("col") is not None \
+                        and pos.get("row") is not None:
+                    buttons.append([bid, label, icon, keys[:23],
+                                    "%d,%d,%d,%d" % (
+                                        max(0, min(3, int(pos.get("col", 0)))),
+                                        max(0, min(7, int(pos.get("row", 0)))),
+                                        max(1, min(4, int(pos.get("w", 1) or 1))),
+                                        max(1, min(4, int(pos.get("h", 1) or 1))))])
+                else:
+                    buttons.append([bid, label, icon, keys[:23]])
             pages.append({
                 "n": str(pg.get("name", "?"))[:15],
                 "i": str(pg.get("icon", ""))[:19],

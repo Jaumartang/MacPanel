@@ -62,6 +62,10 @@ static constexpr int MAX_BUTTONS = 15;
 static constexpr int MAX_PAGES        = 12;   /* pantalles configurables */
 static constexpr int MAX_PAGE_BUTTONS = 15;   /* botons per pantalla */
 static constexpr int MAX_PAGE_WIDGETS = 9;    /* gadgets per pantalla */
+/* Graella de botons: el maxim de columnes (teclat numeric) i de files que pot
+ * arribar a demanar una posicio fixa triada a l'editor visual. */
+static constexpr int BTN_MAX_COLS     = 4;
+static constexpr int BTN_MAX_ROWS     = 8;
 /* Apps (bundle id) que fan saltar la placa a aquesta pantalla tota sola. */
 static constexpr int MAX_PAGE_APPS    = 3;
 static constexpr int APP_ID_MAX       = 40;

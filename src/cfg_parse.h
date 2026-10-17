@@ -347,6 +347,10 @@ inline bool parseConfigJson(const char* json, MacLink::Config& cfg)
                 b.label[0] = '\0';
                 b.icon[0] = '\0';
                 b.keys[0] = '\0';
+                b.col = -1;                  /* posicio automatica */
+                b.row = -1;
+                b.w = 1;
+                b.h = 1;
                 if (!parseButton(b)) return false;
                 if (p.buttonCount < MAX_PAGE_BUTTONS) {
                     p.buttons[p.buttonCount] = b;
@@ -359,7 +363,9 @@ inline bool parseConfigJson(const char* json, MacLink::Config& cfg)
             }
         }
 
-        /* Un boto es ["id","text","icona","tecles"] (poden faltar camps). */
+        /* Un boto es ["id","text","icona","tecles"] (poden faltar camps) i,
+         * opcionalment, un cinque camp amb la posicio fixa: "col,row,w,h".
+         * Els botons de sempre no el porten i es reparteixen sols. */
         bool parseButton(MacLink::Button& b)
         {
             if (!accept('[')) { ok_ = false; return false; }
@@ -374,6 +380,23 @@ inline bool parseConfigJson(const char* json, MacLink::Config& cfg)
                 if (accept(']')) return true;
                 ok_ = false;
                 return false;
+            }
+            skipWs();
+            if (accept(']')) {
+                return true;
+            }
+            char pos[16];
+            if (!readString(pos, sizeof(pos))) return false;
+            int c = -1, r = -1, w = 1, h = 1;
+            if (sscanf(pos, "%d,%d,%d,%d", &c, &r, &w, &h) >= 2) {
+                b.col = static_cast<int8_t>((c < 0 || c > 7) ? -1 : c);
+                b.row = static_cast<int8_t>((r < 0 || r > 15) ? -1 : r);
+                b.w   = static_cast<int8_t>((w < 1 || w > 8) ? 1 : w);
+                b.h   = static_cast<int8_t>((h < 1 || h > 8) ? 1 : h);
+                if (b.col < 0 || b.row < 0) {
+                    b.col = -1;              /* si falta un dels dos, automatic */
+                    b.row = -1;
+                }
             }
             skipWs();
             if (!accept(']')) {

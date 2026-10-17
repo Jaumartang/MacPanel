@@ -346,6 +346,10 @@ int     gRowCount = 0;
 int gBtnCount = 0;
 int gBtnTop   = 0;
 int gBtnCellW = 0;
+/* Casella de la graella on va cada boto (-1 = encara no calculat). Ho omple
+ * reparteixBotons(): els botons amb posicio fixa la manen i la resta omplen els
+ * forats. Aixi l'editor visual pot col·locar un boto on vulgui. */
+int gBtnCell[MAX_PAGE_BUTTONS];
 int gBtnCellH = 0;
 int gBtnCols  = BTN_COLS;
 int gBtnRows  = 1;
@@ -890,14 +894,102 @@ void drawRowFull(int i, const WidgetView& v)
     updateRow(i, v);
 }
 
+/* Botons de la PANTALLA actual. */
+const MacLink::Button* pageButton(int i);
+
 void buttonRect(int i, int& x, int& y, int& w, int& h)
 {
-    const int col = i % gBtnCols;
-    const int row = i / gBtnCols;
+    /* La casella la decideix reparteixBotons() (pot ser una posicio fixa que
+     * hagi triat l'usuari a l'editor). */
+    int cell = i;
+    if (i >= 0 && i < MAX_PAGE_BUTTONS && gBtnCell[i] >= 0) {
+        cell = gBtnCell[i];
+    }
+    const int col = cell % gBtnCols;
+    const int row = cell / gBtnCols;
     x = PAD + col * (gBtnCellW + BTN_GAP);
     y = gBtnTop + row * (gBtnCellH + BTN_GAP);
     w = gBtnCellW;
     h = gBtnCellH;
+
+    /* Un boto pot ocupar mes d'una casella. */
+    const MacLink::Button* b = pageButton(i);
+    if (b != nullptr && b->col >= 0) {
+        if (b->w > 1) {
+            w = b->w * gBtnCellW + (b->w - 1) * BTN_GAP;
+        }
+        if (b->h > 1) {
+            h = b->h * gBtnCellH + (b->h - 1) * BTN_GAP;
+        }
+    }
+}
+
+/* Reparteix els botons per la graella.
+ *
+ * Els que tenen posicio fixa (l'editor visual els pot col·locar) van a la seva
+ * casella; els altres omplen els forats en ordre de lectura, que es exactament
+ * el que s'ha fet sempre quan no n'hi ha cap de fixe. Tambe calcula quantes
+ * files calen, perque una posicio fixa pot demanar-ne mes que el compte
+ * automatic. */
+void reparteixBotons()
+{
+    const int cells = gBtnCols * BTN_MAX_ROWS;
+    bool ocupat[BTN_MAX_COLS * BTN_MAX_ROWS];
+    for (int i = 0; i < BTN_MAX_COLS * BTN_MAX_ROWS; ++i) {
+        ocupat[i] = false;
+    }
+    for (int i = 0; i < MAX_PAGE_BUTTONS; ++i) {
+        gBtnCell[i] = -1;
+    }
+
+    /* 1) Primer els de posicio fixa: son els que manen. */
+    int files = 0;
+    for (int i = 0; i < gBtnCount; ++i) {
+        const MacLink::Button* b = pageButton(i);
+        if (b == nullptr || b->col < 0 || b->row < 0) {
+            continue;
+        }
+        if (b->col >= gBtnCols || b->row >= BTN_MAX_ROWS) {
+            continue;                       /* fora de la graella: automatic */
+        }
+        gBtnCell[i] = b->row * gBtnCols + b->col;
+        for (int dy = 0; dy < b->h; ++dy) {
+            for (int dx = 0; dx < b->w; ++dx) {
+                const int c = b->col + dx;
+                const int r = b->row + dy;
+                if (c < gBtnCols && r < BTN_MAX_ROWS) {
+                    ocupat[r * gBtnCols + c] = true;
+                }
+            }
+        }
+        if (b->row + b->h > files) {
+            files = b->row + b->h;
+        }
+    }
+
+    /* 2) La resta, al primer forat lliure. */
+    int c = 0;
+    for (int i = 0; i < gBtnCount; ++i) {
+        if (gBtnCell[i] >= 0) {
+            continue;
+        }
+        while (c < cells && ocupat[c]) {
+            ++c;
+        }
+        if (c >= cells) {
+            gBtnCell[i] = 0;                /* no hi cap: no el perdem */
+            continue;
+        }
+        gBtnCell[i] = c;
+        ocupat[c] = true;
+        if (c / gBtnCols + 1 > files) {
+            files = c / gBtnCols + 1;
+        }
+        ++c;
+    }
+    if (files > 0) {
+        gBtnRows = files;
+    }
 }
 
 /* Botons de la PANTALLA actual. */
@@ -2728,6 +2820,11 @@ void layout()
         gBtnRows = 1;
     }
     gBtnCellW = (W - PAD * (gBtnCols + 1)) / gBtnCols;
+
+    /* Repartiment dels botons: els que tenen posicio fixa (tria de l'editor
+     * visual) van a la seva casella i poden demanar mes files. Ha d'anar ABANS
+     * de calcular gBtnTop, que depen de gBtnRows. */
+    reparteixBotons();
 
     const int gapTotal = (gBtnRows - 1) * BTN_GAP;
     const int minBtnH  = 20;

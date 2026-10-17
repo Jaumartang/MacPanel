@@ -331,6 +331,10 @@ tens seleccionat).
 - **Arrossegar** un botó sobre un altre els canvia d'ordre; arrossegar una icona
   sobre un botó li canvia la icona.
 - **Zoom** (100/75/50 %) i **graella d'alineació** opcional.
+- **Posició fixa**: a les propietats d'un botó es pot activar "Posició fixa a la
+  graella" i triar columna, fila, amplada i alçada (una casella, o més). El
+  firmware ho respecta i la resta de botons omplen els forats; si no s'activa,
+  el repartiment és automàtic, com sempre.
 - La configuració es valida en desar: si alguna cosa no quadra, s'avisa i es
   desa la versió corregida (no es perd res).
 
@@ -1371,6 +1375,10 @@ python3 tools/consola.py "llisca 260 200 80 205"   # llisca per canviar de panta
 | `tools/test_tema.py` | el tema automàtic: que segueixi el clar/fosc del Mac i que el tema manual no es mogui |
 | `tools/test_tecles.py` | **quina tecla escriu de debò al Mac** (obre TextEdit, envia les tecles i llegeix el porta-retalls) |
 | `tools/test_estabilitat.py` | que no es reiniciï amb canvis de configuració |
+| `tools/test_posicions.py` | les **posicions fixes** dels botons: columna, fila, amplada, alçada i que al treure-les tot torni al seu lloc (cal el pont) |
+| `tools/test_baner.py` | els avisos: que surtin, que el primer toc no premi cap botó i que marxin sols (cal el pont) |
+| `tools/test_model.py` | el **model de dades**: migracions, límits, normalització, exportar/importar i disc (no cal ni placa ni pont) |
+| `tools/test_panell.py` | que totes les seccions del panell siguin en una pestanya i que el JavaScript sigui vàlid (no cal res) |
 | `tools/canvia_orientacio.py` | canvia entre vertical i horitzontal |
 
 Totes funcionen **sense el Mac** (obren el port sèrie directament), així que

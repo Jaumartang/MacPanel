@@ -131,7 +131,13 @@
           "label": "App Store",
           "on": true,
           "icon": "comappleappstore",
-          "keys": ""
+          "keys": "",
+          "pos": {
+            "col": 2,
+            "row": 0,
+            "w": 1,
+            "h": 1
+          }
         },
         {
           "id": "app:com.apple.calculator",
