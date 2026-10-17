@@ -16,7 +16,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "Assets", "icons")
 BIN = os.path.join(SRC, "bin")
 TRANS = 0xF81F
-SIZE = 64
+
+# La mida ve de png2bin: aixi queda sempre sincronitzada amb ICON_PX.
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from png2bin import SIZE  # noqa: E402
 
 # Icones que fa servir el firmware (no surten a la configuracio).
 DEL_FIRMWARE = ["sun", "moon", "cloud", "fog", "rain", "snow", "storm",

@@ -3,15 +3,15 @@
 a la placa.
 
 Dibuixa cada icona sobre el color de fons de la targeta (com fa el firmware) a
-la mida real dels botons (40 px) i a la mida nativa (64 px), per poder detectar
-d'un cop d'ull quines es veuen malament: fons que no s'ha tret, simbols que no
-es llegeixen, etc.
+la mida nativa dels .bin (32 px), per poder detectar d'un cop d'ull quines es
+veuen malament: fons que no s'ha tret, simbols que no es llegeixen, etc.
 
 Us:
     python3 tools/mostra_icones.py
 """
 import os
 import struct
+import sys
 
 from PIL import Image, ImageDraw
 
@@ -19,15 +19,26 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BIN = os.path.join(ROOT, "Assets", "icons", "bin")
 OUT = os.path.join(ROOT, "mostra_icones.png")
 
-SIZE = 64
+# La mida ve de png2bin (l'unic lloc on es defineix): aixi el preview no es pot
+# quedar desincronitzat de la mida real dels .bin (ICON_PX a panel_config.h).
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from png2bin import SIZE  # noqa: E402
+
 TRANS = 0xF81F
 
-# Colors del tema HUD, com a la placa
-BG = 0x0000
-CARD = 0x0883
-EDGE = 0x0947
-ACCENT = 0x07BF
-DIM = 0x5C95
+# Colors del tema HUD, com a la placa (src/theme.cpp). Els posem en RGB de 8
+# bits, com alla, i els convertim: aixi el preview no es pot desincronitzar.
+def rgb565(r, g, b):
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
+
+BG     = rgb565( 11,  19,  32)
+CARD   = rgb565( 28,  42,  60)
+EDGE   = rgb565( 48,  84, 112)
+ACCENT = rgb565(  0, 220, 240)
+DIM    = rgb565(138, 168, 192)
+BTN    = rgb565( 34,  52,  74)
+TEXT   = rgb565(236, 250, 255)
 
 
 def rgb(c):
@@ -76,10 +87,11 @@ def main():
         d.rectangle([cx + 2, cy + 2, cx + cellw - 3, cy + cellh - 3],
                     outline=rgb(EDGE))
 
-        # la icona tal com la dibuixa el firmware (64 px i 40 px)
+        # la icona tal com la dibuixa el firmware (32 px, 1:1)
         full.paste(im, (cx + 4, cy + 16))
-        petita = im.resize((40, 40), Image.LANCZOS)
-        full.paste(petita, (cx + 68, cy + 28))
+        # I a 2x, per veure-la mes gran i detectar-hi els defects de vora.
+        gran = im.resize((SIZE * 2, SIZE * 2), Image.NEAREST)
+        full.paste(gran, (cx + 42, cy + 16))
 
         # nom + estat del fons
         col = rgb(ACCENT) if pct > 5 else (255, 60, 60)
@@ -90,8 +102,8 @@ def main():
     print("desat:", OUT)
     print("%d icones en una graella de %d x %d" % (len(noms), cols, rows))
     print()
-    print("A l'esquerra de cada cela: la icona a 64 px (mida nativa).")
-    print("A la dreta: a 40 px (com surt als botons).")
+    print("A l'esquerra de cada cela: la icona a %d px (mida nativa, 1:1)." % SIZE)
+    print("A la dreta: la mateixa a %d px (per veure-hi les vores)." % (SIZE * 2))
     print("En vermell: icones que NO tenen fons transparent.")
 
 

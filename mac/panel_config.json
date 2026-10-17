@@ -2,13 +2,13 @@
   "port": "/dev/cu.usbserial-1420",
   "refresh_ms": 1000,
   "orientation": "v",
-  "theme": 5,
+  "theme": 1,
   "theme_auto": 0,
   "theme_dark": 5,
   "theme_light": 1,
-  "standby_s": 300,
-  "idle_min": 2,
-  "nav": "bar",
+  "standby_s": 0,
+  "idle_min": 0,
+  "nav": "both",
   "pages": [
     {
       "name": "Principal",
@@ -108,10 +108,32 @@
           "on": false,
           "icon": "chrome",
           "keys": ""
+        },
+        {
+          "id": "app:com.apple.iCal",
+          "label": "Calendar",
+          "on": true,
+          "icon": "comappleical",
+          "keys": ""
+        },
+        {
+          "id": "app:com.apple.AppStore",
+          "label": "App Store",
+          "on": true,
+          "icon": "comappleappstore",
+          "keys": ""
+        },
+        {
+          "id": "app:com.apple.calculator",
+          "label": "Calculator",
+          "on": true,
+          "icon": "comapplecalculator",
+          "keys": ""
         }
       ],
       "apps": [
-        "com.apple.Safari"
+        "com.apple.Safari",
+        "com.microsoft.VSCode"
       ]
     },
     {
@@ -119,8 +141,23 @@
       "icon": "spotlight",
       "layout": "tabs",
       "widgets": [],
-      "buttons": []
+      "buttons": [],
+      "apps": [
+        "com.microsoft.VSCode"
+      ]
+    },
+    {
+      "name": "Favorits",
+      "icon": "github",
+      "layout": "favs",
+      "widgets": [],
+      "buttons": [],
+      "apps": [
+        "com.microsoft.VSCode"
+      ]
     }
   ],
-  "notif_on": true
+  "notif_on": true,
+  "favs_max": 15,
+  "favs_carpetes": 0
 }

@@ -1,5 +1,7 @@
 #include <Arduino.h>
 
+#include <mbedtls/base64.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,6 +68,9 @@ void printHelp()
     Serial.println(F("  hist          mostra l'historial dels grafics"));
     Serial.println(F("  menu          obre/tanca el menu de pantalles"));
     Serial.println(F("  apps          apps obertes al Mac i la seva icona (launcher)"));
+    Serial.println(F("  favs          favorits dels navegadors i la seva icona (favs)"));
+    Serial.println(F("  botons        geometria dels botons de la pantalla actual"));
+    Serial.println(F("  captura       envia una captura de la pantalla pel port serie"));
     Serial.println(F("  splash        torna a mostrar la pantalla d'inici"));
     Serial.println(F("  ajust <id>    prem un boto dels ajustos (ajust theme+)"));
     Serial.println(F("  toca <x> <y>  simula un toc a la pantalla (per provar)"));
@@ -87,6 +92,7 @@ void printInfo()
     Serial.printf("[TOUCH] calibrated=%d\n", Touch::isCalibrated() ? 1 : 0);
     Serial.printf("[MAC] link=%d pantalles=%d\n",
                   MacLink::linkUp() ? 1 : 0, MacLink::config().pageCount);
+    Ui::printStandbyState();
 }
 
 void printConfig()
@@ -104,6 +110,57 @@ void printConfig()
                       i, p.name, p.layout, p.widgetCount, p.buttonCount);
     }
 }
+
+/* Envia la pantalla pel port serie (RGB565 en base64, per franges). Serveix per
+ * veure de debò com queda la pantalla sense haver-la de fotografiar: util per
+ * comprovar colors, fonts i mides. Ho recull tools/captura_pantalla.py.
+ *
+ * Els buffers es reserven NOMES durant la captura: la DRAM de l'ESP32 va justa
+ * i tenir-los sempre reservats no hi cap. */
+void enviaCaptura()
+{
+    TFT_eSPI& t = Display::driver();
+    const int W = Display::width();
+    const int H = Display::height();
+    constexpr int FILES = 16;                  /* 320x16x2 = 10 KB per frange */
+    const size_t nbuf = static_cast<size_t>(W) * FILES;
+    const size_t n64 = ((nbuf * 2 + 2) / 3) * 4 + 8;
+    uint16_t* buf = static_cast<uint16_t*>(malloc(nbuf * 2));
+    char* b64 = static_cast<char*>(malloc(n64));
+    if (buf == nullptr || b64 == nullptr) {
+        Serial.println(F("[SHOT] sense memoria per a la captura"));
+        free(buf);
+        free(b64);
+        return;
+    }
+    const int franges = (H + FILES - 1) / FILES;
+    Serial.printf("[SHOT] %d %d %d\n", W, H, franges);
+    for (int f = 0; f < franges; ++f) {
+        const int y0 = f * FILES;
+        const int nf = (H - y0 < FILES) ? (H - y0) : FILES;
+        t.readRect(0, y0, W, nf, buf);
+        size_t n = 0;
+        if (mbedtls_base64_encode(reinterpret_cast<unsigned char*>(b64), n64, &n,
+                                  reinterpret_cast<const unsigned char*>(buf),
+                                  static_cast<size_t>(W) * nf * 2) != 0) {
+            Serial.println(F("[SHOT] error codificant"));
+            break;
+        }
+        b64[n] = '\0';
+        Serial.printf("[SHOT] %d %s\n", f, b64);
+        delay(15);                             /* que el Mac pugui seguir-ho */
+    }
+    free(buf);
+    free(b64);
+    Serial.println(F("[SHOT] FI"));
+}
+
+void printConfig();
+
+/* Despertar de la pantalla en un toc (definit mes avall, a prop de pollTouch).
+ * La comanda de consola 'toca' tambe l'ha de fer servir: ha de comportar-se
+ * exactament com un dit de debo. */
+bool touchWake(bool pressed);
 
 void handleCommand(char* cmd)
 {
@@ -170,6 +227,44 @@ void handleCommand(char* cmd)
                           (ic[0] == '\0') ? ""
                           : (Icons::exists(ic) ? "a la SD" : "FALTA A LA SD"));
         }
+    } else if (strcmp(cmd, "favs") == 0) {
+        /* Barra de favorits dels navegadors tal com la veu la placa (per a la
+         * pantalla "favs"). Serveix per comprovar que cada favicon hi es. */
+        const int n = MacLink::favCount();
+        Serial.printf("[FAV] %d favorits%s:\n", n,
+                      MacLink::favsReceived() ? "" : " (encara no n'hem rebuts)");
+        for (int i = 0; i < n; ++i) {
+            const char* ic = MacLink::favIcon(i);
+            Serial.printf("[FAV] %2d  %-18s icona=%-18s %s\n", i,
+                          MacLink::favName(i),
+                          (ic[0] != '\0') ? ic : "(cap)",
+                          (ic[0] == '\0') ? ""
+                          : (Icons::exists(ic) ? "a la SD" : "FALTA A LA SD"));
+        }
+    } else if (strcmp(cmd, "botons") == 0) {
+        /* Geometria dels botons de la pantalla actual: serveix per comprovar
+         * que el toc hi cau a sobre (i, per tant, on cau el baner d'avisos). */
+        Ui::printButtons();
+    } else if (strcmp(cmd, "prova") == 0) {
+        /* Pinta franges de colors CONEGUTS i les envia de seguida, per
+         * comprovar que la lectura de la pantalla (readRect) es fiable. Es fa
+         * tot en la mateixa comanda: si no, el bucle principal repintaria la
+         * pantalla entremig i llegiriem una altra cosa. */
+        TFT_eSPI& t = Display::driver();
+        const int W = Display::width();
+        const int H = Display::height();
+        static const uint16_t colors[8] = {
+            0x0000, 0xF800, 0x07E0, 0x001F, 0xFFFF, 0x8410, 0x0884, 0x06FE,
+        };
+        const int fh = H / 8;
+        for (int i = 0; i < 8; ++i) {
+            t.fillRect(0, i * fh, W, fh, colors[i]);
+        }
+        Serial.println(F("[PROVA] 8 franges pintades"));
+        enviaCaptura();
+    } else if (strcmp(cmd, "captura") == 0) {
+        Serial.println(F("[SHOT] comanda rebuda"));
+        enviaCaptura();
     } else if (strncmp(cmd, "ajust ", 6) == 0) {
         /* Executa una accio dels ajustos de la pantalla, com si s'hagues premut
          * el boto: 'ajust theme+', 'ajust themeauto', 'ajust bright+'. Serveix
@@ -196,7 +291,11 @@ void handleCommand(char* cmd)
         int ty = 0;
         if (sscanf(cmd + 5, "%d %d", &tx, &ty) == 2) {
             Serial.printf("[TEST] toco (%d,%d)\n", tx, ty);
-            Ui::touch(true, static_cast<int16_t>(tx), static_cast<int16_t>(ty));
+            /* Com un dit de debo: si la pantalla esta en repòs, el primer toc
+             * nomes la desvetlla. */
+            if (touchWake(true)) {
+                Ui::touch(true, static_cast<int16_t>(tx), static_cast<int16_t>(ty));
+            }
             delay(150);
             Ui::touch(false, static_cast<int16_t>(tx), static_cast<int16_t>(ty));
             Serial.printf("[TEST] menu=%d ajustos=%d pantalla=%d\n",
@@ -208,12 +307,14 @@ void handleCommand(char* cmd)
         int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
         if (sscanf(cmd + 7, "%d %d %d %d", &x1, &y1, &x2, &y2) == 4) {
             Serial.printf("[TEST] llisco (%d,%d) -> (%d,%d)\n", x1, y1, x2, y2);
-            Ui::touch(true, static_cast<int16_t>(x1), static_cast<int16_t>(y1));
-            for (int k = 1; k <= 5; ++k) {          /* passos, com un dit */
-                delay(30);
-                Ui::touch(true,
-                          static_cast<int16_t>(x1 + (x2 - x1) * k / 5),
-                          static_cast<int16_t>(y1 + (y2 - y1) * k / 5));
+            if (touchWake(true)) {
+                Ui::touch(true, static_cast<int16_t>(x1), static_cast<int16_t>(y1));
+                for (int k = 1; k <= 5; ++k) {      /* passos, com un dit */
+                    delay(30);
+                    Ui::touch(true,
+                              static_cast<int16_t>(x1 + (x2 - x1) * k / 5),
+                              static_cast<int16_t>(y1 + (y2 - y1) * k / 5));
+                }
             }
             delay(30);
             Ui::touch(false, static_cast<int16_t>(x2), static_cast<int16_t>(y2));
@@ -289,6 +390,38 @@ void pollSerial()
     }
 }
 
+/* Primer pas d'un toc: desvetllar la pantalla (i, si cal, el Mac). Retorna
+ * false si el toc s'ha consumit aqui i no ha d'arribar cap a la UI.
+ *
+ * Ho fem servir tant a pollTouch() com a la comanda de consola 'toca', perque
+ * el toc simulat faci EXACTAMENT el mateix que un dit de debo. */
+bool touchWake(bool pressed)
+{
+    if (!pressed) {
+        return true;
+    }
+
+    /* Si estem a la pantalla de repòs (rellotge), el primer toc NOMES la treu:
+     * no ha d'activar cap boto sense voler. */
+    if (Ui::idleMode()) {
+        Ui::setIdleMode(false);
+        Ui::touchActivity();
+        Ui::cancelPress();
+        return false;
+    }
+
+    /* Si la pantalla esta en repos, el primer toc NOMES la desvetlla
+     * (no activa cap boto). */
+    if (!Ui::screenOn()) {
+        Ui::touchActivity();
+        Ui::cancelPress();
+        return false;
+    }
+
+    Ui::touchActivity();
+    return true;
+}
+
 /* Tocs: menu (☰) de dalt, menu desplegable, botons i accio. */
 void pollTouch()
 {
@@ -297,36 +430,12 @@ void pollTouch()
     int16_t y = 0;
     Touch::getCoords(x, y);
 
-    /* Si hi ha un avis a la pantalla, el primer toc nomes el treu. */
-    if (pressed && Ui::bannerOn()) {
-        Ui::dismissBanner();
-        Ui::cancelPress();
+    if (!touchWake(pressed)) {
         return;
-    }
-
-    /* Si estem a la pantalla de repòs (rellotge), el primer toc NOMES la treu:
-     * no ha d'activar cap boto sense voler. */
-    if (pressed && Ui::idleMode()) {
-        Ui::setIdleMode(false);
-        Ui::touchActivity();
-        Ui::cancelPress();
-        return;
-    }
-
-    /* Si la pantalla esta en repos, el primer toc NOMES la desvetlla
-     * (no activa cap boto). */
-    if (pressed && !Ui::screenOn()) {
-        Ui::touchActivity();
-        Ui::cancelPress();
-        return;
-    }
-    if (pressed) {
-        Ui::touchActivity();
     }
 
     /* Menu, boto de menu, barra de navegacio, lliscament I BOTONS: tot ho porta
-     * la UI. Aixi el toc simulat de la consola ('toca x y') fa exactament el
-     * mateix que un dit de debo. */
+     * la UI. */
     Ui::touch(pressed, x, y);
 }
 
@@ -437,6 +546,8 @@ void loop()
     const bool cfgChanged = MacLink::takeConfigChanged();
     if (cfgChanged) {
         Ui::setStandbyMs(static_cast<uint32_t>(MacLink::config().standbyS) * 1000UL);
+        Serial.printf("[UI] repos de pantalla: %lus\n",
+                      static_cast<unsigned long>(MacLink::config().standbyS));
         Ui::rebuild();
         /* El teclat Bluetooth NO s'encen aqui: es fa des del bucle, amb retard
          * (vegeu BT_START_DELAY_MS), perque necessita mes de 100 KB i deixaria
@@ -453,6 +564,12 @@ void loop()
      * "tabs" actual. */
     if (MacLink::takeTabsChanged()) {
         Ui::onTabsChanged();
+    }
+
+    /* Favorits dels navegadors: el Mac ha actualitzat la barra de favorits de
+     * la pantalla "favs" actual. */
+    if (MacLink::takeFavsChanged()) {
+        Ui::onFavsChanged();
     }
 
     /* Avis del Mac (notificacions). */

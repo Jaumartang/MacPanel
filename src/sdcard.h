@@ -12,6 +12,12 @@
 
 namespace Sd {
 
+/* Reintents de muntatge a l'arrencada: la targeta de vegades triga a estar a
+ * punt i, sense reintents, una arrencada amb pressa deixava la placa sense cap
+ * icona fins al proper reinici. */
+static constexpr int SD_INTENTS   = 4;
+static constexpr int SD_RETARD_MS = 150;
+
 /* Munta la targeta. Idempotent. Retorna false si no hi ha targeta. */
 bool begin();
 

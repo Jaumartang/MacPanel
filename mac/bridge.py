@@ -17,6 +17,7 @@ import base64
 import io
 import json
 import os
+import plistlib
 import re
 import socket
 import subprocess
@@ -36,6 +37,16 @@ except ImportError:  # pragma: no cover
     serial = None
     list_ports = None
     HAS_SERIAL = False
+
+# Pillow: nomes el fa servir l'extraccio d'icones de les apps (i la conversio a
+# .bin, que ja el demanava). Si no hi es, les icones d'app no es poden extreure
+# i la resta del pont funciona igual.
+try:
+    from PIL import Image
+    HAS_PILLOW = True
+except ImportError:  # pragma: no cover
+    Image = None
+    HAS_PILLOW = False
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "panel_config.json")
@@ -289,9 +300,21 @@ def display_awake():
         for line in out.splitlines():
             if "IODisplayWrangler" in line:
                 parts = line.split()
-                if len(parts) >= 2:
+                # Format: nom, estat actual, estat maxim, descripcio.
+                # La pantalla nomes esta ENCESA quan arriba a l'estat maxim
+                # (4). Despres de 'pmset displaysleepnow' passa per l'1, i amb
+                # un simple "> 0" la placa creuria que el Mac esta despert i no
+                # apagaria mai la seva pantalla.
+                if len(parts) >= 3:
+                    try:
+                        actual = int(parts[1])
+                        maxim = int(parts[2])
+                    except ValueError:
+                        actual, maxim = int(parts[1]), 1
+                    awake = actual >= maxim
+                elif len(parts) >= 2:
                     awake = int(parts[1]) > 0
-                    break
+                break
     except Exception:
         awake = True
     _dsp_cache["t"] = now
@@ -387,12 +410,15 @@ def icons_dir():
 _png2bin = None
 
 
-def png_to_bin(png_bytes, size=64, nom=None):
+def png_to_bin(png_bytes, size=32, nom=None):
     """Converteix un PNG a bytes RGB565 big-endian amb el fons transparent.
 
     Fa servir la MATEIXA conversio que tools/png2bin.py: aixi el panell web i
     l'eina de linia d'ordres donen exactament el mateix resultat (abans hi
     havia dues implementacions i no coincidien).
+
+    size=32 ha de coincidir amb ICON_PX (include/panel_config.h) i amb SIZE de
+    png2bin.py: la placa rebutja qualsevol .bin que no faci 32*32*2 = 2048 B.
 
     Si 'nom' es una icona d'app (Assets/icons/apps.txt), es queda sencera.
     """
@@ -409,6 +435,24 @@ def png_to_bin(png_bytes, size=64, nom=None):
 def clean_icon_name(name):
     """Deixa el nom en minuscules i nomes [a-z0-9_] (max. 19 caracters)."""
     return re.sub(r"[^a-z0-9_]", "", (name or "").lower())[:19]
+
+
+def nom_icona_app(bundle):
+    """Nom d'icona per a una app, derivat del seu bundle id.
+
+    El limit son 19 caracters: es el que cap a Button.icon[20] de la placa, i
+    si ens passessim la placa retallaria el nom i dues apps diferents podrien
+    acabar compartint icona. Per aixo, quan el bundle id es llarg, hi posem un
+    hash curt al final en lloc de tallar-lo a seques.
+    """
+    net = re.sub(r"[^a-z0-9_]", "", (bundle or "").lower())
+    if not net:
+        return ""
+    if len(net) <= 19:
+        return net
+    import hashlib
+    h = hashlib.sha1(bundle.encode("utf-8")).hexdigest()[:4]
+    return net[:14] + "_" + h          # 14 + 1 + 4 = 19
 
 
 def _run(cmd, timeout=2.0):
@@ -705,17 +749,403 @@ def app_icon(nom):
     return ""
 
 
+# --- Icones REALS de les apps del Mac --------------------------------------
+# En lloc de dependre d'una taula fixa, llegim la icona de debo de cada .app
+# instal·lada: aixi qualsevol app surt amb la seva icona (no nomes les que
+# coneixiem d'antic). APP_ICONS queda com a xarxa de seguretat per a les apps
+# que no sapiguem resoldre.
+#
+# D'on surt la icona:
+#   1. <App>.app/Contents/Resources/<CFBundleIconFile>.icns (Pillow la llegeix)
+#   2. Si no hi ha .icns (apps recents amb Assets.car, com Calendari):
+#      NSWorkspace.iconForFile via PyObjC. Es opcional: si PyObjC no hi es,
+#      aquella app simplement surt sense icona (degradacio elegant).
+
+APP_DIRS = (
+    "/Applications",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+    "/System/Library/CoreServices",          # Finder
+    os.path.expanduser("~/Applications"),
+)
+
+ICON_CACHE_DIR = os.path.expanduser("~/Library/Caches/MacPanel")
+APP_INDEX_JSON = os.path.join(ICON_CACHE_DIR, "apps.json")
+
+# Cache inversa {nom_icona: bundle}: es fa quan cal i es buida cada cop que
+# l'index d'apps es refresca (aixi no queda mai desincronitzada).
+_icona_a_bundle = None
+
+# Limit d'icones d'app a la placa. Cada .bin son 2 KB i la SD en te de sobres,
+# pero no val la pena tenir-hi apps que no s'obren mai: amb LRU, les que no
+# s'usen cauen.
+APP_ICON_MAX = 48
+
+_APP_INDEX_TTL = 300.0        # tornar a mirar les carpetes cada 5 min
+_app_index = None             # {bundle_id: {"path","name","icns","mtime"}}
+_app_index_t = 0.0
+
+# El Bridge hi enganxa el seu log() perque els errors d'aqui tambe es vegin al
+# panell (en comptes d'empassar-los).
+_error_sink = None
+
+
+def _error(msg):
+    """Registra un error (mai s'empassa en silenci)."""
+    if _error_sink is not None:
+        try:
+            _error_sink(msg)
+            return
+        except Exception:
+            pass
+    print("[MacPanel] " + str(msg), file=sys.stderr)
+
+
+def _llegeix_info(app_path):
+    """(bundle_id, nom, ruta_icns, mtime) d'un .app, o None si no te bundle id."""
+    pl = os.path.join(app_path, "Contents", "Info.plist")
+    try:
+        with open(pl, "rb") as fh:
+            info = plistlib.load(fh)
+    except Exception as exc:
+        _error(f"Info.plist il·legible a '{app_path}': {exc}")
+        return None
+
+    bundle = str(info.get("CFBundleIdentifier", "") or "").strip()
+    if not bundle:
+        return None
+    nom = (info.get("CFBundleDisplayName") or info.get("CFBundleName")
+           or os.path.splitext(os.path.basename(app_path))[0])
+
+    # Icona .icns (la que sap llegir Pillow). Si no hi es, el nom de la icona
+    # queda buit i ja ho resoldra NSWorkspace (Assets.car).
+    icns = ""
+    icon_file = str(info.get("CFBundleIconFile", "") or "")
+    if icon_file:
+        f = icon_file if icon_file.lower().endswith(".icns") else icon_file + ".icns"
+        cand = os.path.join(app_path, "Contents", "Resources", f)
+        if os.path.isfile(cand):
+            icns = cand
+    if not icns:
+        icon_name = str(info.get("CFBundleIconName", "") or "")
+        if icon_name:
+            cand = os.path.join(app_path, "Contents", "Resources",
+                                icon_name + ".icns")
+            if os.path.isfile(cand):
+                icns = cand
+
+    try:
+        mtime = int(os.path.getmtime(app_path))
+    except OSError:
+        mtime = 0
+
+    # Una app "de debò" es la que surt al Dock o es pot activar. Els agents de
+    # fons (LSUIElement / LSBackgroundOnly) son ajudants invisibles que l'usuari
+    # no veu enlloc: no tenen cap sentit com a boto de la pantalla.
+    visible = not (info.get("LSUIElement") or info.get("LSBackgroundOnly"))
+    return (bundle, str(nom), icns, mtime, bool(visible))
+
+
+def app_index(force=False):
+    """{bundle_id: fitxa} de les apps instal·lades.
+
+    Es fa un sol cop cada 5 minuts i es guarda a memoria (i a disc): recorre 5
+    carpetes i llegeix ~150 Info.plist, i aixo no es pot fer a cada crida.
+    """
+    global _app_index, _app_index_t
+    ara = time.time()
+    if _app_index is not None and not force and (ara - _app_index_t) < _APP_INDEX_TTL:
+        return _app_index
+
+    idx = {}
+    for d in APP_DIRS:
+        try:
+            noms = os.listdir(d)
+        except OSError:
+            continue                       # carpeta que no hi es: cap problema
+        for n in noms:
+            if not n.endswith(".app"):
+                continue
+            p = os.path.join(d, n)
+            info = _llegeix_info(p)
+            if info is None:
+                continue
+            bundle, nom, icns, mtime, visible = info
+            idx.setdefault(bundle, {"path": p, "name": nom, "icns": icns,
+                                    "mtime": mtime, "visible": visible})
+
+    if idx:
+        _app_index = idx
+        _app_index_t = ara
+        global _icona_a_bundle
+        _icona_a_bundle = None            # l'index ha canviat: la cache inversa ja no val
+        try:
+            os.makedirs(ICON_CACHE_DIR, exist_ok=True)
+            with open(APP_INDEX_JSON, "w", encoding="utf-8") as fh:
+                json.dump(idx, fh, ensure_ascii=False)
+        except Exception as exc:
+            _error(f"no s'ha pogut desar l'index d'apps: {exc}")
+    else:
+        _error("l'index d'apps ha sortit buit (cap carpeta llegible)")
+    return _app_index or {}
+
+
+def bundle_for_name(nom):
+    """Bundle id d'una app pel seu nom (el nom de System Events sol coincidir
+    amb el CFBundleDisplayName). Retorna "" si no la trobem."""
+    if not nom:
+        return ""
+    k = _clau(nom)
+    idx = app_index()
+    for bundle, info in idx.items():
+        if _clau(info["name"]) == k:
+            return bundle
+    # Segona passada: el nom del fitxer .app (a vegades el display name difereix)
+    for bundle, info in idx.items():
+        base = os.path.splitext(os.path.basename(info["path"]))[0]
+        if _clau(base) == k:
+            return bundle
+    return ""
+
+
+def _png_icns(ruta):
+    """PNG (>=128 px) de la icona d'un .icns, o None."""
+    if Image is None:
+        _error("cal Pillow per extreure les icones de les apps "
+               "(python3 -m pip install Pillow)")
+        return None
+    try:
+        im = Image.open(ruta)
+        im.load()
+    except Exception as exc:
+        _error(f"no s'ha pogut llegir l'icns '{ruta}': {exc}")
+        return None
+    im = im.convert("RGBA")
+    if max(im.size) > 128:                 # sempre reduim, mai ampliem
+        im = im.resize((128, 128), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _png_nsworkspace(app_path):
+    """PNG de la icona d'una app via NSWorkspace (per a les que no tenen .icns:
+    son les que porten la icona dins d'Assets.car).
+
+    PyObjC es opcional: si no hi es, es retorna None i l'app surt sense icona
+    (degradacio elegant, sense petar).
+    """
+    try:
+        import AppKit
+    except ImportError:
+        return None
+    try:
+        img = AppKit.NSWorkspace.sharedWorkspace().iconForFile_(app_path)
+        if img is None:
+            return None
+        tiff = img.TIFFRepresentation()
+        if tiff is None:
+            return None
+        rep = AppKit.NSBitmapImageRep.imageRepWithData_(tiff)
+        if rep is None:
+            return None
+        data = rep.representationUsingType_properties_(
+            AppKit.NSBitmapImageFileTypePNG, {})
+        return bytes(data) if data else None
+    except Exception as exc:
+        _error(f"NSWorkspace ha fallat amb '{app_path}': {exc}")
+        return None
+
+
+def _png_icona_app(app_path, icns):
+    """PNG de la icona d'una app: primer l'.icns, i si no, NSWorkspace."""
+    if icns:
+        png = _png_icns(icns)
+        if png:
+            return png
+    return _png_nsworkspace(app_path)
+
+
+def icona_app_png(bundle, info):
+    """PNG de la icona d'una app, amb cau a ~/Library/Caches/MacPanel.
+
+    La cau es valida amb el mtime del .app: si l'app s'ha actualitzat, es
+    torna a extreure. Retorna None si no se n'ha pogut treure cap.
+    """
+    nom = nom_icona_app(bundle)
+    if not nom:
+        return None
+    try:
+        os.makedirs(ICON_CACHE_DIR, exist_ok=True)
+    except Exception as exc:
+        _error(f"no s'ha pogut crear la cau '{ICON_CACHE_DIR}': {exc}")
+        return None
+
+    dst = os.path.join(ICON_CACHE_DIR, nom + ".png")
+    stamp = os.path.join(ICON_CACHE_DIR, nom + ".stamp")
+    mtime = str(info.get("mtime", 0))
+    try:
+        with open(stamp, "r", encoding="utf-8") as fh:
+            if fh.read().strip() == mtime and os.path.isfile(dst):
+                with open(dst, "rb") as fh:
+                    return fh.read()
+    except OSError:
+        pass
+
+    png = _png_icona_app(info["path"], info.get("icns", ""))
+    if not png:
+        return None
+    try:
+        with open(dst, "wb") as fh:
+            fh.write(png)
+        with open(stamp, "w", encoding="utf-8") as fh:
+            fh.write(mtime)
+    except Exception as exc:
+        _error(f"no s'ha pogut desar la icona de '{bundle}': {exc}")
+    return png
+
+
+def app_icon_name(bundle, nom):
+    """Nom de la icona de la placa que li toca a una app ("" = cap).
+
+    El resolutor NOU: si l'app es a l'index, la seva icona es la REAL (extreta
+    del .app del Mac). Pero si per aquella app ja teniem una icona curada a la
+    taula, es reutilitza: es la mateixa app, ja es a la placa i aixi no hi pugem
+    una segona copia identica. Les apps que NO son a la taula (la majoria!) son
+    les que guanyen icona amb aixo.
+
+    Si l'app no es a l'index (no la trobem enlloc), es cau a la taula de sempre.
+    """
+    if bundle:
+        info = app_index().get(bundle)
+        if info is not None:
+            curt = app_icon(info["name"])
+            if curt:
+                return curt
+            ic = nom_icona_app(bundle)
+            if ic:
+                return ic
+    return app_icon(nom)
+
+
+def _mapa_icones():
+    """{nom_icona: bundle} de les apps instal·lades.
+
+    Serveix per saber de quina app es una icona pel seu nom (el panell les
+    demana per nom, i encara no les hem extretes totes). Es recalcula quan
+    l'index d'apps es refresca.
+    """
+    global _icona_a_bundle
+    if _icona_a_bundle is None:
+        _icona_a_bundle = {}
+        for bundle in app_index():
+            n = nom_icona_app(bundle)
+            if n:
+                _icona_a_bundle.setdefault(n, bundle)
+    return _icona_a_bundle
+
+
+def extreu_icona(nom):
+    """Assegura que el PNG d'una icona d'app existeixi al disc.
+
+    El panell mostra les ~70 apps instal·lades amb la seva icona: extreure-les
+    TOTES d'entrada seria molt lent (descomprimir icns, NSWorkspace...). En
+    canvi, quan el navegador demana '/icons/<nom>.png' i el fitxer no hi es, el
+    traiem en aquell moment: es rapid i nomes es fa per les que es veuen.
+    """
+    if not nom or Image is None:
+        return False
+    desti = os.path.join(icons_dir(), nom + ".png")
+    if os.path.isfile(desti):
+        return True
+    bundle = _mapa_icones().get(nom)
+    if not bundle:
+        return False
+    info = app_index().get(bundle)
+    if info is None:
+        return False
+    png = icona_app_png(bundle, info)
+    if not png:
+        return False
+    try:
+        with open(desti, "wb") as fh:
+            fh.write(png)
+        return True
+    except OSError as exc:
+        _error(f"no s'ha pogut desar la icona '{nom}': {exc}")
+        return False
+
+
+def apps_instalades():
+    """Llista d'apps instal·lades per al panell web: nom, bundle i icona.
+
+    Nomes les apps "de debò" (les que surten al Dock i es poden obrir): els
+    agents de fons no es poden ni activar, aixi que no tenen cap sentit com a
+    boto de la pantalla.
+    """
+    out = []
+    for bundle, info in sorted(app_index().items(),
+                               key=lambda kv: kv[1]["name"].lower()):
+        if not info.get("visible", True):
+            continue
+        out.append({"bundle": bundle,
+                    "name": info["name"],
+                    "icon": nom_icona_app(bundle)})
+    return out
+
+
+# --- Politica LRU de les icones d'app a la placa ---------------------------
+# La placa no ens pot dir quines icones hi te (no hi ha ordre per llistar-les),
+# aixi que ho portem nosaltres: un JSON amb el nom de cada icona d'app pujada i
+# quan s'ha usat per ultim cop. Quan se supera APP_ICON_MAX, les que fa mes
+# temps que no es toquen s'esborren de la placa (ICONDEL).
+
+APP_LRU_JSON = os.path.join(ICON_CACHE_DIR, "icons_lru.json")
+
+
+def lru_load():
+    """{nom_icona: instant de l'ultim us} de les icones d'app pujades."""
+    try:
+        with open(APP_LRU_JSON, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except OSError:
+        return {}
+    except ValueError as exc:
+        _error(f"la LRU d'icones esta feta malbé: {exc}")
+        return {}
+    if not isinstance(d, dict):
+        return {}
+    out = {}
+    for k, v in d.items():
+        try:
+            out[str(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def lru_save(d):
+    try:
+        os.makedirs(ICON_CACHE_DIR, exist_ok=True)
+        with open(APP_LRU_JSON, "w", encoding="utf-8") as fh:
+            json.dump(d, fh)
+    except Exception as exc:
+        _error(f"no s'ha pogut desar la LRU d'icones: {exc}")
+
+
 def launcher_line(apps):
     """Linia 'L nom=icona|nom=icona' amb les apps obertes i la seva icona.
 
     Les apps sense icona van sense el '=' (la placa els posa el nom i prou).
+    La icona surt de la icona REAL de l'app al Mac (pel bundle id); si no la
+    sabem resoldre, es cau a la taula de sempre.
     """
     parts = []
     for a in apps:
         nom = re.sub(r"[|=]", " ", a).strip()
         if not nom:
             continue
-        ic = app_icon(nom)
+        ic = app_icon_name(bundle_for_name(nom), nom)
         parts.append("%s=%s" % (nom, ic) if ic else nom)
     return "L " + "|".join(parts)
 
@@ -824,6 +1254,269 @@ def activate_tab(navegador, index):
     return True
 
 
+# --- Favorits dels navegadors (pantalles "favs") ---------------------------
+# Els favorits son FITXERS AL DISC, no cal AppleScript: es poden llegir sempre,
+# encara que el navegador estigui tancat (que es just el que vols en una pagina
+# de favorits: tenir-los a ma sense obrir res).
+#
+# El Mac envia la llista amb una linia global, com les pestanyes:
+#   F Titol1=favicon1|Titol2=favicon2|...
+# En tocar-ne un, la placa envia 'C fav:N' (N, 0-based) i el Mac obre la URL.
+#
+# Suportem els tres formats que hi ha al mercat:
+#   - Safari i WebKit          -> Bookmarks.plist (plist binari d'Apple)
+#   - Chrome i familia Chromium -> <perfil>/Bookmarks (JSON)
+#   - Firefox                  -> places.sqlite (SQLite)
+
+FAV_MAX_BOOKMARKS = 15      # els que caben a la placa (MAX_FAVS del firmware)
+
+# Familia Chromium: nom llegible -> carpeta dins ~/Library/Application Support.
+# Mirem tots els perfils del navegador i ens quedem amb el que te els favorits
+# mes recents ('Default' i 'Profile N').
+CHROMIUM_BOOKMARKS = [
+    ("Chrome",        "Google/Chrome"),
+    ("Chrome Beta",   "Google/Chrome Beta"),
+    ("Chrome Dev",    "Google/Chrome Dev"),
+    ("Chrome Canary", "Google/Chrome Canary"),
+    ("Chromium",      "Chromium"),
+    ("Brave",         "BraveSoftware/Brave-Browser"),
+    ("Edge",          "Microsoft Edge"),
+    ("Vivaldi",       "Vivaldi"),
+]
+
+# Nom d'AppleScript del navegador -> clau de la taula de dalt. Serveix per
+# posar els favorits del navegador que tens al davant els primers de la llista.
+NAV_A_FAV = {
+    "Safari": "Safari",
+    "Google Chrome": "Chrome",
+    "Google Chrome Beta": "Chrome Beta",
+    "Google Chrome Dev": "Chrome Dev",
+    "Google Chrome Canary": "Chrome Canary",
+    "Chromium": "Chromium",
+    "Brave Browser": "Brave",
+    "Microsoft Edge": "Edge",
+    "Vivaldi": "Vivaldi",
+}
+
+# Safari ve de fabrica amb aquests favorits a la barra. Si no els traguessim,
+# omplirien la pagina sencera (i a mes hi son duplicats: la versio '.es' i la
+# '.com'). Son sempre els mateixos a qualsevol Mac, aixi que els saltem: el que
+# queda a la barra es el que l'usuari hi ha posat de debo.
+SAFARI_DE_FABRICA = {
+    "http://www.apple.com/es/", "http://es.yahoo.com/",
+    "http://maps.google.es/", "http://es.youtube.com/",
+    "http://www.apple.com/", "http://www.yahoo.com/",
+    "http://maps.google.com/", "http://www.youtube.com/",
+    "http://es.wikipedia.org/", "http://www.wikipedia.org/",
+}
+
+
+def _mtime(fitxer):
+    """Data de modificacio d'un fitxer (0.0 si no existeix)."""
+    try:
+        return os.path.getmtime(fitxer)
+    except OSError:
+        return 0.0
+
+
+def _troba_barra(node, fons=0):
+    """Node de la barra de favorits dins l'arbre de Bookmarks.plist."""
+    for c in node.get("Children", []):
+        if c.get("Title") in ("BookmarksBar", "Favorites", "Favorits"):
+            return c
+        if fons < 3:
+            r = _troba_barra(c, fons + 1)
+            if r is not None:
+                return r
+    return None
+
+
+def _fulles_plist(node, fons, carpetes, maxim):
+    """(titol, url) de les fulles d'un node de Bookmarks.plist, en ordre.
+
+    El titol d'un favorit de Safari es a URIDictionary.title; 'Title' nomes el
+    fan servir les carpetes (les fulles el tenen buit).
+    """
+    out = []
+    for c in node.get("Children", []):
+        if len(out) >= maxim:
+            break
+        url = (c.get("URLString") or "").strip()
+        if url:
+            if url in SAFARI_DE_FABRICA:
+                continue
+            titol = ((c.get("URIDictionary") or {}).get("title")
+                     or c.get("Title") or "").strip()
+            out.append((titol, url))
+        elif carpetes and fons < 2:
+            out.extend(_fulles_plist(c, fons + 1, carpetes, maxim - len(out)))
+    return out
+
+
+def _favorits_safari(carpetes=False, maxim=FAV_MAX_BOOKMARKS):
+    """Favorits de la barra de Safari, en l'ordre que els te l'usuari."""
+    from pathlib import Path
+    for p in (Path.home() / "Library/Safari/Bookmarks.plist",
+              Path.home() / "Library/Containers/com.apple.Safari/Data/"
+                            "Library/Safari/Bookmarks.plist"):
+        try:
+            if not p.is_file():
+                continue
+            arrel = plistlib.loads(p.read_bytes())
+        except Exception:
+            continue
+        barra = _troba_barra(arrel)
+        if barra is not None:
+            return _fulles_plist(barra, 0, carpetes, maxim)
+    return []
+
+
+def _fulles_json(node, fons, carpetes, maxim):
+    """(titol, url) de les fulles d'un node de 'Bookmarks' de Chromium."""
+    out = []
+    for c in node.get("children", []):
+        if len(out) >= maxim:
+            break
+        if c.get("type") == "url" and c.get("url"):
+            out.append(((c.get("name") or "").strip(), c["url"].strip()))
+        elif carpetes and c.get("children") and fons < 2:
+            out.extend(_fulles_json(c, fons + 1, carpetes, maxim - len(out)))
+    return out
+
+
+def _favorits_chromium(carpeta, carpetes=False, maxim=FAV_MAX_BOOKMARKS):
+    """Favorits de la barra d'un navegador de la familia Chromium."""
+    from pathlib import Path
+    if not carpeta:
+        return []
+    base = Path.home() / "Library/Application Support" / carpeta
+    if not base.is_dir():
+        return []
+    perfils = []
+    try:
+        for f in base.iterdir():
+            if f.is_dir() and (f.name == "Default" or f.name.startswith("Profile")):
+                perfils.append(f)
+    except Exception:
+        return []
+    # El perfil que s'ha fet servir mes recentment es el que ens interessa.
+    perfils.sort(key=lambda p: -_mtime(p / "Bookmarks"))
+    for perfil in perfils:
+        fitxer = perfil / "Bookmarks"
+        try:
+            if not fitxer.is_file():
+                continue
+            dades = json.loads(fitxer.read_text(encoding="utf-8",
+                                                errors="replace"))
+        except Exception:
+            continue
+        out = _fulles_json(((dades.get("roots") or {}).get("bookmark_bar") or {}),
+                           0, carpetes, maxim)
+        if out:
+            return out
+    return []
+
+
+def _favorits_firefox(maxim=FAV_MAX_BOOKMARKS):
+    """Favorits de la barra de Firefox (places.sqlite).
+
+    Firefox te la base de dades oberta i bloquejada mentre corre, aixi que en
+    fem una copia a un fitxer temporal i llegim la copia. Si no hi ha Firefox
+    (o falla), es torna una llista buida i la resta de navegadors segueixen.
+    """
+    import shutil
+    import sqlite3
+    import tempfile
+    from pathlib import Path
+    arrel = Path.home() / "Library/Application Support/Firefox/Profiles"
+    if not arrel.is_dir():
+        return []
+    for places in sorted(arrel.glob("*/places.sqlite"), key=lambda p: -_mtime(p)):
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+                tmp = f.name
+            shutil.copyfile(places, tmp)
+            con = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True, timeout=3.0)
+            files = con.execute(
+                "SELECT b.title, p.url FROM moz_bookmarks b "
+                "JOIN moz_places p ON p.id = b.fk "
+                "WHERE b.type = 1 AND p.url LIKE 'http%' "
+                "AND b.parent = (SELECT id FROM moz_bookmarks "
+                "                WHERE guid = 'toolbar_____') "
+                "ORDER BY b.position").fetchall()
+            con.close()
+            out = [((t or "").strip(), u.strip()) for t, u in files if u]
+            if out:
+                return out[:maxim]
+        except Exception:
+            continue
+        finally:
+            if tmp:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    return []
+
+
+def bookmarks(navegador="", maxim=FAV_MAX_BOOKMARKS, carpetes=False):
+    """Favorits de tots els navegadors: [(titol, url, navegador)].
+
+    Els favorits del navegador que te el focus van primers (son els que acabes
+    de fer servir); la resta segueixen un ordre fix. Dins de cada navegador es
+    respecta l'ordre de la seva barra. Es treuen els repetits exactes (mateixa
+    URL) perque la pagina no surti amb el mateix lloc dues vegades.
+    """
+    ordre = ["Safari"] + [n for n, _ in CHROMIUM_BOOKMARKS] + ["Firefox"]
+    clau = NAV_A_FAV.get(navegador, "")
+    if clau in ordre:
+        ordre.remove(clau)
+        ordre.insert(0, clau)
+
+    carpetes_chromium = dict(CHROMIUM_BOOKMARKS)
+    out, vistos = [], set()
+    for nom in ordre:
+        try:
+            if nom == "Safari":
+                ll = _favorits_safari(carpetes, maxim)
+            elif nom == "Firefox":
+                ll = _favorits_firefox(maxim)
+            else:
+                ll = _favorits_chromium(carpetes_chromium.get(nom, ""),
+                                        carpetes, maxim)
+        except Exception:
+            ll = []
+        for titol, url in ll:
+            if url in vistos:
+                continue
+            vistos.add(url)
+            out.append((titol, url, nom))
+            if len(out) >= maxim:
+                return out
+    return out
+
+
+def favs_line(favs, favicons_ok):
+    """Linia 'B Titol=favicon|...' amb els favorits i els seus favicons.
+
+    La lletra es 'B' (bookmarks) perque la 'F' ja es la previsio del temps. Si
+    un favorit no te titol (passa en algunes barres importades) es mostra el
+    domini, que sempre es mes util que una casella buida.
+    """
+    parts = []
+    for titol, url, _nav in favs:
+        nom = re.sub(r"[|=]", " ", titol or "").strip()[:27]
+        if not nom:
+            nom = _domini_net(url)[:27]
+        ic = favicon_icon(url)
+        if ic and ic in favicons_ok:
+            parts.append(f"{nom}={ic}")
+        else:
+            parts.append(nom)
+    return "B " + "|".join(parts)
+
+
 # --- Favicons: cada pestanya porta el favicon del seu lloc web -------------
 # El favicon es descarrega (Google s2, 64 px), es converteix a .bin com qualsevol
 # icona i es puja a la SD. Es guarden en una memoria curta per no descarregar
@@ -851,8 +1544,47 @@ def favicon_icon(url):
     return FAV_CACHE[host]
 
 
-def favicon_png(url, px=64):
-    """Bytes PNG del favicon d'una URL (Google s2) o None si no hi e'.
+# Mida a la qual es demana el favicon a Google s2. Es la MATEIXA que ICON_PX:
+# si es demanes mes gran, Google l'ampliaria ell (i quedaria borros) i despres
+# l'hauriem de tornar a reduir nosaltres. A 32 va 1:1 amb la placa.
+FAVICON_PX = 32
+
+# I la mida "de treball": demanem la icona mes gran que sapigueu donar i deixem
+# que png2bin la redueixi. Reduir nosaltres amb LANCZOS dona mes detall que la
+# reduccio que fa Google pel seu compte (es nota molt a Google, Apple, Spotify
+# o Wikipedia, que tenen icones de 128 px o mes).
+FAVICON_BAIXA = 128
+
+
+def _mida_png(data):
+    """Amplada del PNG (llegeix la capcalera IHDR). 0 si no es pot saber."""
+    try:
+        if len(data) >= 24 and data[12:16] == b"IHDR":
+            return int.from_bytes(data[16:20], "big")
+    except Exception:
+        pass
+    return 0
+
+
+def _urls_favicon(url):
+    """URLs on provar el favicon, en ordre: la de debo i, si falla, el domini pare.
+
+    Alguns llocs amb subdomini (p.ex. es.yahoo.com) no tenen favicon propi a
+    Google s2, pero el domini pare (yahoo.com) si. El nom de la icona segueix
+    sortint del host original, aixi que cada adreça te la seva entrada.
+    """
+    yield url
+    try:
+        host = (urllib.parse.urlparse(url).netloc or "").split(":")[0]
+        parts = host.split(".")
+        if len(parts) > 2:
+            yield "https://" + ".".join(parts[-2:]) + "/"
+    except Exception:
+        pass
+
+
+def _descarrega_favicon(url, px):
+    """Bytes PNG del favicon d'una URL (Google s2) o None si no n'hi ha.
 
     Fa servir 'curl' en comptes d'urllib: alguns Python (p.ex. el de
     miniforge) no tenen els certificats SSL del sistema i urllib falla, mentre
@@ -870,6 +1602,56 @@ def favicon_png(url, px=64):
     except Exception:
         pass
     return None
+
+
+def favicon_png(url, px=FAVICON_PX):
+    """Bytes PNG del favicon d'una URL, provant tambe el domini pare.
+
+    Es demana la icona a FAVICON_BAIXA (mes gran que la final) perque reduir-la
+    nosaltres amb LANCZOS dona mes detall. Pero alguns llocs nomes tenen una
+    icona de 16 px: llavors Google, a la mida gran, torna el fitxer petit de
+    debo (i l'hauriem d'ampliar nosaltres, que queda pitjor). En aquest cas es
+    torna a demanar a la mida final, que Google ja torna ampliada.
+    """
+    for u in _urls_favicon(url):
+        data = _descarrega_favicon(u, FAVICON_BAIXA)
+        if data is None:
+            continue
+        if _mida_png(data) >= px:
+            return data
+        alt = _descarrega_favicon(u, px)
+        return alt or data
+    return None
+
+
+def clau_llista(items, icones_sd):
+    """Clau per saber si una llista (pestanyes o favorits) ha canviat.
+
+    Inclou si el favicon de cada element ja es a la placa: aixi, quan en pugem
+    un de nou, la linia es reenvia i la placa li pot posar la icona. Sense
+    aixo, la pestanya es quedaria sense favicon fins que canviés la llista.
+    """
+    out = []
+    for it in items:
+        titol, url = it[0], it[1]
+        ic = favicon_icon(url)
+        out.append((titol, ic if ic in icones_sd else ""))
+    return tuple(out)
+
+
+def _icona_fluixa(nom):
+    """La icona local existeix pero te menys pixels dels que volem?
+
+    Serveix per repescar automaticament les icones que es van baixar quan
+    demanavem els favicons mes petits: a la placa es veien borroses i no hi
+    havia manera d'arreglar-les sense esborrar-les a ma.
+    """
+    try:
+        from PIL import Image
+        with Image.open(os.path.join(icons_dir(), nom + ".png")) as im:
+            return min(im.size) < FAVICON_PX
+    except Exception:
+        return False
 
 
 def tabs_line(tabs, favicons_ok):
@@ -1191,6 +1973,13 @@ class Bridge:
         self._ack_chunk = threading.Event()   # resposta 'K' (tros d'icona)
         self._ack_icon = threading.Event()    # resposta 'I' (icona/esborrat)
         self._busy = threading.Event()        # pujant una icona: no enviem stats
+        # Icones d'app (les treiem de les .app del Mac): LRU de les que hi ha a
+        # la placa i memoria de les que no s'han pogut extreure (per no tornar-hi
+        # cada volta).
+        global _error_sink
+        _error_sink = self.log               # els errors del modul es veuen aqui
+        self._app_lru = lru_load()           # {nom_icona: ultim us}
+        self._app_fail = set()               # apps sense icona extraïble
         # Fins que la placa no ens saluda ('H'), no li enviem res.
         self._ready = False
         # Reintents de connexio seguits (per no reiniciar la placa en bucle).
@@ -1210,11 +1999,31 @@ class Bridge:
         self._tabs_clau = None                # ultima llista enviada (per no repetir)
         self._tabs_t = 0.0                    # ultima vegada que les hem enviat
         self._fav_done = set()                # favicons que ja hem pujat
+        self._fav_repas = set()               # favicons borrosos que ja hem repescat
+        # Captura de pantalla (comanda 'captura'): la placa l'envia en franges.
+        self._shot = {}                       # frange -> base64
+        self._shot_mida = None                # (amplada, alcada, franges)
+        self._shot_fi = False
+        # Mentre hi ha una captura en curs no pugem icones: es menjarien
+        # l'amplada de banda del port i la captura no arribaria sencera.
+        self._captura_en_curs = False
+        # Pausa de les pujades d'icones despres de diversos errors seguits (per
+        # no inundar el port i deixar el pont sord a la resta).
+        self._icon_fails = 0
+        self._icon_pausa_fins = 0.0
         # La LECTURA es fa en un fil propi (run_tabs_loop): els AppleScript dels
         # navegadors poden trigar segons i, si es fan al bucle d'estadistiques,
         # la placa perd l'enllac i apaga la pantalla. Aqui nomes hi ha memoria.
         self._tabs_llegides = []              # ultimes pestanyes llegides [(titol,url)]
         self._tabs_req = threading.Event()    # la placa acaba de demanar-les
+        # Favorits dels navegadors (pantalles "favs"): es llegeixen del DISC (no
+        # cal AppleScript) i canvien molt poc, aixi que n'hi ha prou de mirar-los
+        # de tant en tant. Els del navegador que te el focus van primers.
+        self._favs = []                       # ultims favorits llegits
+        self._favs_clau = None                # ultima llista enviada (per no repetir)
+        self._favs_t = 0.0                    # ultima vegada que els hem llegit
+        self._favs_llegit = False             # ja els hem llegit del disc (almenys un cop)
+        self._tabs_llegit = False             # ja hem llegit les pestanyes (almenys un cop)
 
     # -- utilitats --------------------------------------------------------
     def log(self, msg):
@@ -1474,7 +2283,15 @@ class Bridge:
             self._busy.clear()
 
     def upload_icon(self, name, png_bytes):
-        """Converteix un PNG, el desa al projecte i el puja a la SD de la placa."""
+        """Converteix un PNG, el desa al projecte i el puja a la SD de la placa.
+
+        Si les pujades fallen diverses vegades seguides, parem una estona: si
+        no, el pont ho reintenta sense parar i inunda el port, i llavors ni les
+        estadistiques ni cap altra comanda (com una captura de pantalla) hi
+        caben.
+        """
+        if time.time() < self._icon_pausa_fins:
+            return False, "pausa: massa errors seguits pujant icones"
         name = clean_icon_name(name)
         if not name:
             return False, "nom invalid (nomes lletres, numeros i _)"
@@ -1495,9 +2312,15 @@ class Bridge:
         for intent in (1, 2):
             if self.send_icon(name, data):
                 self.log(f"icona '{name}' pujada a la pantalla")
+                self._icon_fails = 0
                 return True, "ok"
             self.log(f"reintent de la icona '{name}' ({intent})...")
 
+        self._icon_fails += 1
+        if self._icon_fails >= 3:
+            self._icon_pausa_fins = time.time() + 60.0
+            self.log(f"{self._icon_fails} errors seguits pujant icones: "
+                     f"paro un minut per no inundar el port")
         self.log(f"ERROR pujant la icona '{name}'")
         return False, "no s'ha pogut pujar (comprova la connexio i la SD)"
 
@@ -1589,11 +2412,53 @@ class Bridge:
             if 0 <= idx < len(apps):
                 name = apps[idx]
                 self.log(f"activo l'aplicacio: {name}")
-                subprocess.Popen(["osascript", "-e",
-                                  f'tell application "{name}" to activate'])
+                try:
+                    subprocess.Popen(["osascript", "-e",
+                                      f'tell application "{name}" to activate'])
+                except Exception as exc:
+                    # Si no es pot llançar l'ordre, es registra i prou: una
+                    # excepcio aqui mataria el fil de lectura del port (i el
+                    # pont es quedaria sord del tot).
+                    self.log(f"error activant '{name}': {exc}")
+                    return False
                 return True
             self.log(f"index d'app invalid: {idx}")
             return False
+
+        # La placa demana que despertem la pantalla del Mac: ho fa quan l'usuari
+        # toca el panell i el Mac te la pantalla dormida (si no, la placa
+        # s'apagaria al cap d'una estona i semblaria espatllada).
+        if action_id == "wake":
+            self.log("desperto la pantalla del Mac")
+            try:
+                # 'caffeinate -u' simula activitat d'usuari: es la manera
+                # estandard de despertar la pantalla sense moure el ratoli.
+                subprocess.Popen(["caffeinate", "-u", "-t", "3"])
+                return True
+            except Exception as exc:
+                self.log(f"error: {exc}")
+                return False
+
+        # Aplicacio INSTAL·LADA: obrir-la (o portar-la al davant) pel bundle id.
+        # Es el que fan els botons d'app del panell: 'app:com.apple.Safari'.
+        if action_id.startswith("app:"):
+            bundle = action_id[4:].strip()
+            if not bundle:
+                return False
+            info = app_index().get(bundle)
+            if info is None:
+                # Pot ser una app instal·lada fora de les carpetes habituals:
+                # ho provem igualment, pero ho deixem dit al registre.
+                self.log(f"l'aplicacio '{bundle}' no es a l'index; ho provo igualment")
+            else:
+                self.log(f"obro l'aplicacio: {info.get('name', bundle)}")
+            try:
+                # 'open -b' la llança si esta tancada i l'activa si ja hi es.
+                subprocess.Popen(["open", "-b", bundle])
+                return True
+            except Exception as exc:
+                self.log(f"error: {exc}")
+                return False
 
         # La placa demana que reenviem les pestanyes (acaba d'entrar a una
         # pantalla "tabs"). Envia de seguida l'ultima llista que tenim (sense
@@ -1602,6 +2467,16 @@ class Bridge:
             self._tabs_clau = None
             self._tabs_req.set()
             self.send_tabs_if_changed()
+            return True
+
+        # Igual, pero per als favorits de les pantalles "favs". Com que els
+        # favorits son fitxers del disc (no cal AppleScript), els podem
+        # rellegir aqui mateix: son uns 50 ms i la placa no es queda mai amb
+        # una pagina buida esperant el proper cicle.
+        if action_id == "refresh:favs":
+            self.llegeix_favs()
+            self._favs_clau = None
+            self.send_favs_if_changed()
             return True
 
         # Pestanyes: activar la pestanya N del navegador obert.
@@ -1614,6 +2489,24 @@ class Bridge:
             self.log(f"activo la pestanya {idx} de "
                      f"{self._tabs_nav or 'el navegador'}")
             return ok
+
+        # Favorits: obrir la URL del favorit N amb el navegador de sempre.
+        if action_id.startswith("fav:"):
+            try:
+                idx = int(action_id.split(":", 1)[1])
+            except ValueError:
+                return False
+            if not (0 <= idx < len(self._favs)):
+                self.log(f"index de favorit invalid: {idx}")
+                return False
+            titol, url, _nav = self._favs[idx]
+            self.log(f"obro el favorit: {titol or url}")
+            try:
+                subprocess.Popen(["open", url])
+                return True
+            except Exception as exc:
+                self.log(f"error: {exc}")
+                return False
 
         if action_id.startswith("custom:"):
             cmd = None
@@ -1648,6 +2541,41 @@ class Bridge:
         return [i for i, pg in enumerate(self.config.get("pages", []))
                 if str(pg.get("layout", "")) == "tabs"]
 
+    def te_layout(self, nom):
+        """Hi ha alguna pantalla amb aquesta disposicio?"""
+        return any(str(pg.get("layout", "")) == nom
+                   for pg in self.config.get("pages", []))
+
+    def te_launcher(self):
+        """Hi ha alguna pantalla de tipus 'launcher' (apps obertes)?
+
+        Nomes en aquest cas val la pena extreure i pujar icones d'app: si no hi
+        ha cap pantalla que les ensenyi, seria feina per no res.
+        """
+        return self.te_layout("launcher")
+
+    def te_favs(self):
+        """Hi ha alguna pantalla de favorits dels navegadors ('favs')?
+
+        Com al launcher: si no hi ha cap pantalla que els ensenyi, no cal
+        llegir res ni descarregar cap favicon.
+        """
+        return self.te_layout("favs")
+
+    def favs_opcions(self):
+        """Com vols que es llegeixin els favorits (de la configuracio).
+
+        'favs_max'   quants favorits mostrar (1..MAX_FAVS de la placa)
+        'favs_carpetes' 1 = entra tambe dins de les carpetes de la barra
+        """
+        try:
+            maxim = int(self.config.get("favs_max", FAV_MAX_BOOKMARKS))
+        except (TypeError, ValueError):
+            maxim = FAV_MAX_BOOKMARKS
+        maxim = max(1, min(FAV_MAX_BOOKMARKS, maxim))
+        carpetes = str(self.config.get("favs_carpetes", "0")).strip() in ("1", "true", "si", "sí")
+        return maxim, carpetes
+
     def send_tabs_if_changed(self):
         """Envia a la placa les pestanyes ja LLEGIDES, si han canviat.
 
@@ -1662,15 +2590,62 @@ class Bridge:
         if not (self.ser is not None and self._ready
                 and not self._busy.is_set()):
             return
+        # Igual que amb els favorits: no enviem mai una llista buida abans
+        # d'haver-ne llegit cap (la placa esborraria la pantalla).
+        if not self._tabs_llegit:
+            return
         tabs = self._tabs_llegides
+        icones_sd = set(list_icons())
         # Envia la linia nomes si les pestanyes han canviat (titol o favicon).
-        clau = tuple((t, favicon_icon(u)) for t, u in tabs)
+        clau = clau_llista(tabs, icones_sd)
         if clau == self._tabs_clau:
             return
         self._tabs_clau = clau
-        icones_sd = set(list_icons())
         self.send_line(tabs_line(tabs, icones_sd))
         self.log(f"pestanyes: {len(tabs)} de {self._tabs_nav or 'cap navegador'}")
+
+    def llegeix_favs(self):
+        """Llegeix els favorits dels navegadors (nomes fitxers del disc).
+
+        Es fa al fil de pestanyes, com la resta de lectures "lentes": el bucle
+        d'estadistiques nomes ha de tocar memoria i la UART. En aquest cas son
+        uns 50 ms, pero si el disc esta ocupat podria ser mes.
+        """
+        if not self.te_favs():
+            return
+        maxim, carpetes = self.favs_opcions()
+        try:
+            self._favs = bookmarks(self._tabs_nav, maxim, carpetes)
+        except Exception as exc:
+            self.log(f"error llegint els favorits: {exc}")
+            self._favs = []
+        self._favs_llegit = True
+
+    def send_favs_if_changed(self):
+        """Envia a la placa els favorits ja LLEGITS, si han canviat.
+
+        Igual que amb les pestanyes: aqui no es toca el disc ni s'obre cap
+        proces, nomes es mira si la llista es diferent de l'ultima que vam
+        enviar (aixi no omplim la UART repetint el mateix cada segon).
+        """
+        if not self.te_favs():
+            return
+        if not (self.ser is not None and self._ready
+                and not self._busy.is_set()):
+            return
+        # Fins que no haguem llegit res, no enviem una llista buida: la placa
+        # esborraria la pantalla i es veuria un parpelleig a l'arrencar.
+        if not self._favs_llegit:
+            return
+        favs = self._favs
+        icones_sd = set(list_icons())
+        clau = clau_llista(favs, icones_sd)
+        if clau == self._favs_clau:
+            return
+        self._favs_clau = clau
+        self.send_line(favs_line(favs, icones_sd))
+        self.log(f"favorits: {len(favs)} de "
+                 f"{favs[0][2] if favs else 'cap navegador'}")
 
     def run_tabs_loop(self):
         """Fil propi: llegeix les pestanyes del navegador cada 3 s (i les apps).
@@ -1684,6 +2659,8 @@ class Bridge:
         """
         t_apps = 0.0
         t_ev = 0.0
+        t_nav = 0.0
+        t_ico = 0.0
         while self.running:
             try:
                 # Apps obertes per al launcher: mateixa raó que les pestanyes
@@ -1695,6 +2672,11 @@ class Bridge:
                         self._apps = apps
                         if (self.ser is not None and self._ready
                                 and not self._busy.is_set()):
+                            # Primer assegurem les icones que faltin (una per
+                            # volta): aixi, quan la placa repinti el launcher,
+                            # ja hi son. Nomes si hi ha alguna pantalla launcher.
+                            if self.te_launcher():
+                                self._push_one_app_icon(apps)
                             self.send_line(launcher_line(apps))
                             self.log(f"launcher: {len(apps)} apps obertes")
                 # Agenda (proper esdeveniment): l'AppleScript de Calendar pot
@@ -1710,37 +2692,152 @@ class Bridge:
                             self.send_line("E " + ev)
                             self.log(f"agenda: {ev}" if ev
                                      else "agenda: sense esdeveniments")
-                if self.tab_pages():
-                    nav = browser_running()
-                    tabs = browser_tabs(nav) if nav else []
-                    self._tabs_nav = nav
-                    self._tabs_llegides = tabs
-                    self._tabs_req.clear()
-                    # Un favicon per volta: la pujada va amb ack per la UART i
-                    # tambe triga (per aixo es fora del bucle de stats).
-                    self._push_one_favicon(tabs)
+                # Icones de les apps INSTAL·LADES que surten als botons (id
+                # 'app:<bundle>'): s'extreuen i es pugen d'una en una, encara
+                # que l'app no estigui oberta. Sense aixo, un boto d'app
+                # instal·lada es quedaria sense icona.
+                if time.time() - t_ico > 8.0:
+                    t_ico = time.time()
+                    bundles = self.bundles_de_botons()
+                    if bundles:
+                        self._push_icona_per_bundles(bundles)
+
+                if self.tab_pages() or self.te_favs():
+                    # El navegador del davant fa falta per a les pestanyes i,
+                    # tambe, per posar els favorits d'aquell navegador primers.
+                    # Amb pantalles de pestanyes es mira cada volta (cal per
+                    # saber qui te el focus); amb nomes favorits, cada 15 s (a
+                    # l'usuari no li canvia l'ordre de la pagina cada 3 s).
+                    if self.tab_pages() or time.time() - t_nav > 15.0:
+                        t_nav = time.time()
+                        self._tabs_nav = browser_running()
+                    nav = self._tabs_nav
+                    if self.tab_pages():
+                        tabs = browser_tabs(nav) if nav else []
+                        self._tabs_llegides = tabs
+                        self._tabs_llegit = True
+                        self._tabs_req.clear()
+                        # Un favicon per volta: la pujada va amb ack per la
+                        # UART i tambe triga (per aixo es fora de stats).
+                        self._push_one_favicon(tabs)
+                    # Favorits: es llegeixen del disc (rapid) i queden a
+                    # memoria fins que send_favs_if_changed() els envii.
+                    self.llegeix_favs()
+                    self._push_one_favicon(self._favs)
             except Exception as exc:
                 self.log(f"error de pestanyes: {exc}")
             time.sleep(3.0)
 
-    def _push_one_favicon(self, tabs):
+    def _push_icona_per_bundles(self, bundles):
+        """Puja com a MAXIM una icona d'app per cridada, donats els bundle ids.
+
+        L'extraccio (descomprimir l'icns, NSWorkspace, reduir a 32 px) i la
+        pujada amb ack per la UART triguen: es fa una per volta i fora del bucle
+        d'estadistiques, perque l'enllac no se'n ressenti.
+
+        Amb politica LRU: quan se supera APP_ICON_MAX, s'esborren de la placa
+        les icones d'app que fa mes temps que no s'usen.
+        """
+        if self.ser is None or self._busy.is_set() or self._captura_en_curs:
+            return
+        idx = app_index()
+        for bundle in bundles:
+            info = idx.get(bundle)
+            if info is None:
+                continue
+            ic = nom_icona_app(bundle)
+            if not ic or ic in self._app_fail:
+                continue
+            if ic in self._app_lru:
+                self._app_lru[ic] = time.time()   # marca d'us (es desa al final)
+                continue
+
+            png = icona_app_png(bundle, info)
+            if not png:
+                # No se n'ha pogut treure cap: no ho tornem a provar en bucle.
+                self._app_fail.add(ic)
+                self.log(f"sense icona per a '{info.get('name', bundle)}' ({bundle})")
+                continue
+
+            if len(self._app_lru) >= APP_ICON_MAX:
+                self._app_icon_evict()
+            # upload_icon() torna (ok, missatge): compte, una tupla sempre es
+            # certa! Si no desempaquetessim, el pont es pensaria que la icona
+            # s'ha pujat sempre i no ho tornaria a provar mai.
+            ok, _msg = self.upload_icon(ic, png)
+            if ok:
+                self._app_lru[ic] = time.time()
+                lru_save(self._app_lru)
+                self.log(f"icona de l'app '{info.get('name', bundle)}' a la placa")
+            return
+
+    def bundles_de_botons(self):
+        """Bundle ids de les apps que surten als botons (id 'app:<bundle>').
+
+        Serveix per pujar la icona de debò d'aquella app encara que no estigui
+        oberta: es una app INSTAL·LADA, i el boto l'obre.
+        """
+        out = []
+        for pg in self.config.get("pages", []):
+            for b in pg.get("buttons", []):
+                bid = str(b.get("id", ""))
+                if bid.startswith("app:"):
+                    bundle = bid[4:].strip()
+                    if bundle and bundle not in out:
+                        out.append(bundle)
+        return out
+
+    def _push_one_app_icon(self, apps):
+        """Puja com a MAXIM una icona d'app per cridada (les que estan obertes).
+
+        Nomes es fan servir per al launcher.
+        """
+        bundles = []
+        for nom in apps:
+            bundle = bundle_for_name(nom)
+            if bundle:
+                bundles.append(bundle)
+        self._push_icona_per_bundles(bundles)
+
+    def _app_icon_evict(self):
+        """Esborra de la placa la icona d'app que fa mes temps que no s'usa."""
+        if not self._app_lru:
+            return
+        vell = min(self._app_lru.items(), key=lambda kv: kv[1])[0]
+        self._app_lru.pop(vell, None)
+        lru_save(self._app_lru)
+        if self.delete_icon(vell):
+            self.log(f"icona '{vell}' fora de la placa (LRU)")
+
+    def _push_one_favicon(self, items):
         """Puja com a MAXIM un favicon per cridada (descarrega + conversio + ack).
 
         Retorna despres de la primera pujada intentada: aixi una sola icona
-        per volta i l'enllac no es veu afectat.
+        per volta i l'enllac no es veu afectat. Serveix tant per a les
+        pestanyes com per als favorits (tots dos son llistes (titol, url, ...)).
         """
-        if self.ser is None or self._busy.is_set():
+        if self.ser is None or self._busy.is_set() or self._captura_en_curs:
             return
         icones_sd = set(list_icons())
-        for _titol, url in tabs:
+        for _titol, url, *_ in items:
             ic = favicon_icon(url)
-            if not ic or ic in icones_sd or ic in self._fav_done:
+            if not ic or ic in self._fav_done:
+                continue
+            if ic in icones_sd:
+                # Ja hi es. Pero si es de baixa resolucio (d'una epoca en que
+                # les demanavem mes petites), la tornem a baixar un cop: a la
+                # placa es veia borrosa i no hi havia manera d'arreglar-ho.
+                if ic not in self._fav_repas and _icona_fluixa(ic):
+                    self._fav_repas.add(ic)
+                    png = favicon_png(url)
+                    if png and self.upload_icon(ic, png)[0]:
+                        return
                 continue
             if len(self._fav_done) >= FAV_MAX:
                 return
             self._fav_done.add(ic)
             png = favicon_png(url)
-            if png and self.upload_icon(ic, png):
+            if png and self.upload_icon(ic, png)[0]:
                 icones_sd.add(ic)
             return
 
@@ -1794,6 +2891,9 @@ class Bridge:
                 try:
                     t_t = time.time()
                     self.send_tabs_if_changed()
+                    # Favorits dels navegadors (pantalles "favs"): mateixa idea,
+                    # la lectura la fa run_tabs_loop.
+                    self.send_favs_if_changed()
                     dt_t = time.time() - t_t
                 except Exception as exc:
                     self.log(f"error de pestanyes: {exc}")
@@ -1853,58 +2953,78 @@ class Bridge:
             time.sleep(max(0.05, interval - (time.time() - t0)))
 
     def run_read_loop(self):
+        """Llegeix el que diu la placa (port serie o WiFi) i ho processa.
+
+        IMPORTANT: aquest fil NO es pot morir mai. Si moria, el pont quedava
+        SORD (continuava enviant estadistiques pero no llegia cap resposta) i
+        tot plegat semblava que la placa s'hagues penjat: no responia a cap
+        comanda, ni al 'restart', i la pantalla es quedava congelada. Per aixo
+        tot el cos va dins d'un try/except: una linia dolenta es registra i
+        es descarta, pero el fil continua.
+        """
         buf = b""
         while self.running:
-            sock = self.sock
-            ser = self.ser
+            try:
+                sock = self.sock
+                ser = self.ser
 
-            if sock is None and ser is None:
-                # Auto-reconnexio amb espera creixent. Compte: obrir el port
-                # reinicia la placa (DTR/RTS), aixi que si alguna cosa va malament
-                # no ens hi podem posar en bucle: cada reintent l'hi tornaria a
-                # fer. Els primers van de seguida (per si s'ha desendollat i
-                # tornat a endollar) i despres s'esperen mes.
-                self._retries += 1
-                wait = 2.0 if self._retries <= 3 else min(2.0 * self._retries, 15.0)
-                time.sleep(wait)
-                if self.running and self.sock is None and self.ser is None:
-                    if self.try_reconnect():
-                        self._retries = 0
-                continue
-
-            if sock is not None:
-                try:
-                    raw = sock.recv(512)
-                except socket.timeout:
-                    continue
-                except Exception as exc:
-                    self.log(f"error de lectura WiFi: {exc}")
-                    self.close_tcp()
-                    buf = b""
-                    continue
-                if not raw:
-                    self.log("el client WiFi s'ha desconnectat")
-                    self.close_tcp()
-                    buf = b""
-                    continue
-            else:
-                try:
-                    # readline() torna de seguida quan arriba un '\n'.
-                    raw = ser.readline()
-                except Exception as exc:
-                    self.log(f"error de lectura: {exc}")
-                    self.disconnect()
-                    buf = b""
-                    continue
-                if not raw:
+                if sock is None and ser is None:
+                    # Auto-reconnexio amb espera creixent. Compte: obrir el port
+                    # reinicia la placa (DTR/RTS), aixi que si alguna cosa va
+                    # malament no ens hi podem posar en bucle: cada reintent
+                    # l'hi tornaria a fer. Els primers van de seguida (per si
+                    # s'ha desendollat i tornat a endollar) i despres mes.
+                    self._retries += 1
+                    wait = 2.0 if self._retries <= 3 else min(2.0 * self._retries, 15.0)
+                    time.sleep(wait)
+                    if self.running and self.sock is None and self.ser is None:
+                        if self.try_reconnect():
+                            self._retries = 0
                     continue
 
-            buf += raw
-            while b"\n" in buf:
-                line_raw, buf = buf.split(b"\n", 1)
-                line = line_raw.decode("utf-8", "replace").strip()
-                if line:
-                    self.handle_line(line)
+                if sock is not None:
+                    try:
+                        raw = sock.recv(512)
+                    except socket.timeout:
+                        continue
+                    except Exception as exc:
+                        self.log(f"error de lectura WiFi: {exc}")
+                        self.close_tcp()
+                        buf = b""
+                        continue
+                    if not raw:
+                        self.log("el client WiFi s'ha desconnectat")
+                        self.close_tcp()
+                        buf = b""
+                        continue
+                else:
+                    try:
+                        # readline() torna de seguida quan arriba un '\n'.
+                        raw = ser.readline()
+                    except Exception as exc:
+                        self.log(f"error de lectura: {exc}")
+                        self.disconnect()
+                        buf = b""
+                        continue
+                    if not raw:
+                        continue
+
+                buf += raw
+                while b"\n" in buf:
+                    line_raw, buf = buf.split(b"\n", 1)
+                    line = line_raw.decode("utf-8", "replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        self.handle_line(line)
+                    except Exception as exc:
+                        # Una linia no pot matar el fil (mira la nota de dalt).
+                        self.log(f"error processant '{line[:40]}': {exc}")
+            except Exception as exc:
+                # Xarxa de seguretat: cap error inesperat no ha de deixar el
+                # pont sord. Es registra i es continua.
+                self.log(f"error greu al fil de lectura: {exc}")
+                time.sleep(0.2)
 
     def resend_all(self, delay=2.5):
         """Reenvia a la placa tot el que necessita: configuracio, previsio del
@@ -1933,6 +3053,92 @@ class Bridge:
             self.log("estat complet reenviat a la placa")
 
         threading.Thread(target=_job, daemon=True).start()
+
+    def _shot_linia(self, cos):
+        """Reb una linia de la captura de pantalla de la placa ('captura')."""
+        if cos == "FI":
+            self._shot_fi = True
+            return
+        parts = cos.split(" ", 1)
+        if len(parts) == 1:
+            nums = parts[0].split()
+            if len(nums) == 3:
+                self._shot_mida = tuple(int(x) for x in nums)
+                self._shot = {}
+                self.log(f"captura: la placa diu {self._shot_mida}")
+            else:
+                self.log(f"captura: linia estranya '{cos[:40]}'")
+            return
+        try:
+            self._shot[int(parts[0])] = parts[1]
+        except ValueError:
+            pass
+
+    def captura_pantalla(self, timeout=90.0):
+        """Demanem una captura de la pantalla i l'esperem.
+
+        La placa envia la pantalla en franges (RGB565 en base64). Retorna
+        (amplada, alcada, bytes) o None si no arriba sencera.
+
+        Com que va pel MATEIX port que les estadistiques, mentre dura la captura
+        no s'hi pot enviar res mes; la placa tambe esta enfeinada llegint la
+        pantalla, aixi que les linies 'S' que li arribin s'acumulen al seu
+        buffer (no passa res: son descartables).
+        """
+        self._shot = {}
+        self._shot_mida = None
+        self._shot_fi = False
+        self._captura_en_curs = True
+        try:
+            return self._captura_intent(timeout)
+        finally:
+            self._captura_en_curs = False
+
+    def _captura_intent(self, timeout):
+        if not self.send_line("captura"):
+            self.log("no s'ha pogut demanar la captura (port?)")
+            return None
+        self.log("demanant una captura de pantalla (triga ~40 s)...")
+        fi = time.time() + timeout
+        while time.time() < fi and not self._shot_fi:
+            time.sleep(0.2)
+        if self._shot_mida is None:
+            self.log("la captura no ha arribat (cap frange)")
+            return None
+        w, h, franges = self._shot_mida
+        self.log(f"captura: {len(self._shot)} franges de {franges}")
+        dades = bytearray()
+        for f in range(franges):
+            tros = self._shot.get(f)
+            if tros is None:
+                self.log(f"falta la frange {f} de la captura")
+                return None
+            try:
+                dades += base64.b64decode(tros, validate=True)
+            except Exception:
+                return None
+        if len(dades) < w * h * 2:
+            return None
+        return w, h, bytes(dades[:w * h * 2])
+
+    def captura_png(self):
+        """La captura de la pantalla, com a PNG (bytes) o None."""
+        if Image is None:
+            return None
+        r = self.captura_pantalla()
+        if r is None:
+            return None
+        w, h, dades = r
+        im = Image.new("RGB", (w, h))
+        px = im.load()
+        for i in range(w * h):
+            v = (dades[i * 2] << 8) | dades[i * 2 + 1]
+            px[i % w, i // w] = (((v >> 11) & 0x1F) * 255 // 31,
+                                 ((v >> 5) & 0x3F) * 255 // 63,
+                                 (v & 0x1F) * 255 // 31)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        return buf.getvalue()
 
     def handle_set(self, payload):
         """Ajust canviat des de la pantalla de l'ESP32: 'clau=valor'.
@@ -2031,6 +3237,8 @@ class Bridge:
             self._ack_chunk.set()
             self._ack_icon.set()
             self.log("l'ESP32 ha retornat un error")
+        elif line.startswith("[SHOT] "):
+            self._shot_linia(line[7:])
         elif line.startswith("[SYS] up="):
             pass   # informe periodic de memoria: no embussem el registre
         else:

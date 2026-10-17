@@ -37,7 +37,10 @@ així que funciona a la placa sense ajustos (vegeu `include/pins.h` i
 - **Capçalera**: hora del Mac · nom de l'equip · indicador `LINK` / `NO LINK` en
   una pastilla amb puntet de color. Si el nom de l'equip no hi cap, **no
   s'escurça**: va passant de costat a costat (marquesina), amb una aturada al
-  començament de cada passada perquè es pugui llegir.
+  començament de cada passada perquè es pugui llegir. Les vores de la marquesina
+  es **difuminen** (tramat ordenat Bayer 8×8) en lloc de quedar tallades de cop:
+  abans hi havia una lletra a mitges just al costat de l'hora i semblava que
+  l'hora fos "12:00ɔ".
 - **Files d'estat** (les que triïs al panell): CPU, RAM, Disc, Bateria, Xarxa,
   Load average, Temps ences, Hora, Nom del Mac. Les que són percentatge porten
   una barra rodona amb puntet de color.
@@ -103,11 +106,19 @@ quant fa que està encesa.
 
 - **Si el Mac entra en repòs** (o apaga la pantalla), la pantalla s'apaga. El Mac
   ho detecta amb `pmset -g powerstate IODisplayWrangler` i ho envia al camp
-  `dsp` de la línia d'estadístiques.
+  `dsp` de la línia d'estadístiques. **Només** quan hi ha un repòs configurat
+  (vegeu l'últim punt): amb *Repòs de pantalla: mai* mana l'usuari i la pantalla
+  no s'apaga mai tota sola.
 - **Quan el Mac es desperta**, la pantalla s'encén sola.
 - **Sense enllaç** durant 45 s (Mac dormit o apagat) també s'apaga.
 - **Tocant la pantalla** s'encén. El primer toc només la desperta: no activa cap
-  botó (així no prems res sense voler).
+  botó (així no prems res sense voler). Si el Mac tenia la pantalla dormida,
+  el toc també **desperta el Mac** (`caffeinate -u`): si no, la placa s'apagaria
+  al cap d'una estona i semblaria espatllada.
+- **Marge després d'un toc**: tot i que el Mac tingui la pantalla dormida, si
+  acabes de tocar la placa es queda encesa 20 s. Sense aquest marge, el toc
+  l'encenia i ella s'apagava 3 s després (i semblava que s'encengués i
+  s'apagués sense parar).
 - **Per inactivitat**: opcional, des de *Ajustos*. Per defecte és **mai** (0),
   perquè si estàs treballant amb el Mac la pantalla no s'ha d'apagar: ja
   s'apagarà quan ho faci la del Mac.
@@ -175,6 +186,32 @@ N Correu|LALIGA|Plazas limitadas: prepara ELCLÁSICO…
 - Els camps es netegen (sense `|` ni salts de línia) i s'escurcen perquè càpiguen.
 - Al panell web hi ha la llista de les últimes que han arribat i un botó per
   aturar-les o fer-ne una de prova.
+
+### Com es comporta el bàner
+
+El bàner és una **capa a sobre** del contingut (com al Mac): es dibuixa just sota
+la capçalera i tapa les dues o tres primeres files de gadgets o de botons. Perquè
+això no faci mal, el bàner mana sobre la resta mentre és a la pantalla:
+
+- **Mentre hi és, la pàgina no es repinta.** Si els gadgets es refresquessin,
+  anirien pintant el bàner a trossos fins a fer-lo desaparèixer.
+- **Sobreviscut a canvis de pàgina, de tema o de configuració**: qualsevol
+  `layout()` el torna a pintar al final, a sobre del contingut nou.
+- **El primer toc el treu i es menja el toc sencer.** No obre el menú, no canvia
+  de pantalla i **no prem el botó que hi ha a sota**. Això últim és important:
+  com que el bàner cau just sobre la primera fila de botons, sense menjar-se el
+  toc sencer (fins que el dit s'aixeca) la placa premia aquell botó en deixar
+  anar el dit.
+- **En treure'l es repinta la pàgina sencera**, perquè el bàner tapa contingut de
+  debò (no n'hi ha prou de repintar la capçalera, que és a sobre). Es fa sense
+  apagar la retroil·luminació, perquè el que ha de veure l'usuari és com
+  desapareix l'avís i un flaix negre semblaria una fallada.
+- Si se n'encavalca un altre de **més baix** que l'anterior, es repinta la
+  pàgina perquè no en quedin restes.
+
+> Nota: la pantalla de repòs (rellotge) i el menú obert tenen prioritat i no hi
+> ha botons de pàgina actius. Quan el bàner és a sobre d'elles, el primer toc el
+> treu i el segon ja fa la seva feina.
 
 > **No cal cap permís especial**: la base de dades del contenidor de l'usuari és
 > llegible pel mateix usuari. Si algun dia macOS la protegeix, caldrà donar
@@ -266,39 +303,47 @@ python3 mac/panel_server.py --no-browser                      # no obrir el nave
 
 ## El panell de control
 
-- **Pantalla**: marca quins widgets surten i ordena'ls amb ▲ ▼.
-- **Shortcuts**: afegeix/treu botons, canvia'n el text (màx. 12 caràcters), tria
-  l'acció i ordena'ls. Cada botó té un **▶** per provar-lo al Mac sense tocar la placa.
-- **Arrossegar i deixar anar** (drag & drop):
-  - **Icones**: a dalt de tot de la llista de botons hi ha una **paleta amb totes
-    les icones** de la placa. Arrossega'n una sobre un botó i se li assigna.
-  - **Reordenar**: arrossega un botó pel símbol **⠿** (a l'esquerra) i deixa'l
-    anar damunt d'un altre: una línia blava indica on quedarà.
-  - Els botons ▲ ▼ segueixen funcionant per moure'ls d'un en un.
-- **Estat del Mac (en viu)**: CPU, RAM, disc, bateria, **corrent** (si està
-  endollat o amb bateria, amb el text en verd quan ho està), xarxa, càrrega i
-  **temps d'inactivitat**.
-- **Previsualització**: una aproximació de com quedarà la pantalla de 320×480.
+El panell s'obre a `http://127.0.0.1:8770` i està organitzat en **cinc pestanyes**
+(abans era una sola pàgina amb 11 apartats i quedava llarg i feixuc). Cada
+pestanya té la seva adreça (`#apps`, `#avisos`...), així que es pot enllaçar o
+guardar als marcadors, i queda desada per a la propera vegada.
+
+| Pestanya | Què hi ha |
+|---|---|
+| **Pantalles** | l'editor: pantalles, gadgets, botons i la **previsualització** (enganxada a la dreta mentre edites) |
+| **Apps i icones** | les **apps instal·lades al Mac** amb la seva icona de debò, i pujar icones |
+| **Avisos** | avisos a la pantalla i notificacions del Mac |
+| **Ajustos** | enllaç (cable/WiFi), favorits dels navegadors i ajustos de la placa |
+| **Estat** | l'estat del Mac en viu i quina aplicació estàs fent servir |
+
+### Els botons surten de les teves apps
+
+La manera fàcil de fer botons: **pestanya "Apps i icones"** → surten totes les
+aplicacions instal·lades al Mac (les de debò: els ajudants de fons, que tenen
+`LSUIElement`, no hi surten) amb **la seva icona real**, treta de l'`.icns` o de
+l'`Assets.car` de cada app.
+
+- **Un clic** sobre una app → s'afegeix un botó a la pantalla actual amb el seu
+  nom i la seva icona. El botó **obre l'app si està tancada** i la porta al
+  davant si ja hi és.
+- **Arrossegar** la icona d'una app sobre un botó que ja existeix → li canvia
+  la icona.
+- Les icones s'extreuen **quan el navegador les demana** (no totes de cop, que
+  trigaria molt) i queden a `Assets/icons/`.
+
+Hi ha un cercador, i es veu quantes apps hi ha (`70 de 70 apps`).
+
+### La resta del panell
+
+- **Gadgets**: marca quins widgets surten i ordena'ls amb ▲ ▼.
+- **Tecles del Mac**: els botons de volum, música, copiar/enganxar... s'afegeixen
+  amb un clic. Cada botó té un **▶** per provar-lo sense tocar la placa.
+- **Reordenar**: arrossega un botó pel símbol **⠿** (a l'esquerra).
+- **Estat del Mac (en viu)**: CPU, RAM, disc, bateria, corrent, xarxa, càrrega i
+  temps d'inactivitat.
+- **Previsualització**: com quedarà la pantalla, **amb els colors del tema triat**.
 - **Desa i envia a la pantalla** desa `mac/panel_config.json` i envia la
   configuració a l'ESP32 pel sèrie.
-
-També s'hi configura la **navegacio** (barra + lliscar / només barra / només
-lliscar / res) i el **temps de repos** de la pantalla.
-
-### Els apartats es poden plegar, moure i redimensionar
-
-El panell té 11 apartats i queda molt llarg, així que:
-
-- **Plegar**: fes clic a qualsevol títol i s'amaga el contingut (la fletxa ▾
-  gira). El botó **Plegar-ho tot** ho fa de cop.
-- **Moure**: arrossega la nansa **⠿** de la dreta del títol. Una línia blava
-  indica on quedarà l'apartat.
-- **Amplada**: el desplegable **Columnes** (50/50, 65/35, 35/65, 75/25, una sola
-  columna) o arrossega la **nansa vertical** entre les dues columnes.
-- **Ordre original**: torna a l'ordre de sempre.
-
-Tot queda desat al `localStorage` del navegador, així que la propera vegada ho
-trobes tal com ho vas deixar. No afecta la placa: és només com es veu el panell.
 
 ## Shortcuts
 
@@ -366,10 +411,22 @@ l'orientacio) o des de *Ajustos* a la mateixa pantalla, i s'apliquen a l'instant
 |---|---|---|
 | 0 | **Fosc** | Blau-nit |
 | 1 | **Clar** | Fons clar, text fosc |
-| 2 | **Neo** | Negre amb accents magenta/cian |
+| 2 | **Neo** | Blau-nit amb accents magenta/cian |
 | 3 | **Grafite** | Gadget sobri amb accent teal |
 | 4 | **Pastel** | To suau |
-| 5 | **HUD** | Cian sobre negre, estil panell de control (per defecte) |
+| 5 | **HUD** | Cian sobre blau nit, estil panell de control (per defecte) |
+
+> **Sobre la brillantor**: els temes foscs van néixer amb el fons *i* els botons
+> gairebé negres. Amb la retroil·luminació al 100% la pantalla igualment semblava
+> apagada: no es distingien els botons del fons i les icones es veien pobres. Ara
+> els colors estan triats amb una regla: als temes foscs, `card` i `btn` són
+> **clarament més clars** que `bg`. La vinya del fons també s'ha suavitzat (abans
+> enfosquia les vores fins a un 31%; ara un 15%).
+>
+> Els colors s'escriuen amb **RGB de 8 bits** llegible (`rgb(11, 19, 32)`) i es
+> converteixen a RGB565 en compilar: abans eren números hexadecimals i no hi
+> havia manera de veure d'un cop d'ull que, per exemple, el botó del tema HUD era
+> gairebé negre.
 
 ### Tema automàtic (clar/fosc segons el Mac)
 
@@ -486,21 +543,62 @@ colors nous a la paleta.
 Els colors son **variables en temps d'execucio** (`src/theme.*`), aixi que no cal
 refer el firmware per canviar-los.
 
-### Fonts suaus
+### Fonts suaus (antialiasades)
 
-La UI fa servir les fonts **FreeSans** de TFT_eSPI (antialiasades) en comptes de
-les fonts de mapa de bits: molt mes agradables a la vista. Quatre mides:
+La UI fa servir fonts **antialiasades de veritat**, generades amb
+`tools/fes_fonts.py` a partir de **San Francisco** (la font del sistema del
+Mac), en comptes de les fonts de mapa de bits d'1 bit d'Adafruit/TFT_eSPI.
 
-- **S** (`FreeSans9pt`) — capcalera, etiquetes, botons
-- **M** (`FreeSansBold12pt`) — valors i titols
-- **L** (`FreeSansBold18pt`) — temperatura, numeros dels gauges mitjans
-- **B** (`FreeSansBold24pt`) — el rellotge gran
+> Les `FreeSans` de TFT_eSPI són d'**1 bit**: cada píxel és tinta o no n'hi ha,
+> i per això les corbes surten escalonades. En una pantalla de 320×480, amb
+> textos de 13 a 35 px, es nota moltíssim. Les noves tenen 256 nivells de gris
+> per píxel i es veuen netes.
 
-> Aquestes fonts només cobreixen **ASCII** (`0x20..0x7E`), així que caràcters com
-> el símbol de graus (`°`) no hi són: sortirien en blanc. Per això la temperatura
-> es dibuixa amb un **cerclet** pintat a mà (`drawTemp()`), que a més queda més
-> fi que la lletra. El número i el `°C` es col·loquen amb datum de **línia base**
-> (`L_BASELINE`) perquè no es trepitgin mai, sigui quin sigui el valor.
+Quatre mides, triades perquè tinguin **exactament la mateixa alçada de línia**
+que les d'abans (així cap text es mou de lloc):
+
+| | Mida | Pes | On |
+|---|---|---|---|
+| **S** | 18 px | Regular | capçalera, etiquetes, gadgets, noms d'app |
+| **M** | 24 px | Semibold | valors, títols, noms de botó |
+| **L** | 35 px | Bold | temperatura, teclat numèric, «MAC PANEL» |
+| **B** | 47 px | Bold | el rellotge gran i el logo «MP» |
+
+Les fonts són **taules de bytes a la flash** (`include/font_*.h`, ~98 KB), així
+que no depenen de la targeta SD ni de SPIFFS: sempre hi són. TFT_eSPI només té
+una font suau carregada alhora, i carregar-ne una malloca les mètriques de cada
+glif, així que `setFontS/M/L/B` recorden quina hi ha i només canvien quan cal.
+
+Per **refer-les** (si vols canviar mides o pesos):
+
+```bash
+python3 tools/fes_fonts.py     # reescriu include/font_s.h, font_m.h, font_l.h, font_b.h
+```
+
+El joc de caràcters és ASCII (`0x20..0x7E`) més els que fa servir la interfície
+(`«»·ò¡▲▼`). La font gran (B) només porta el que necessita (dígits, `:`, `M`,
+`P`), que és el que surt al rellotge i al logo.
+
+> Els caràcters que no hi són surten en blanc. Per això la temperatura es
+> dibuixa amb un **cerclet** pintat a mà (`drawTemp()`), que a més queda més fi
+> que la lletra, i el número i el `°C` es col·loquen amb datum de **línia base**
+> (`L_BASELINE`) perquè no es trepitgin mai.
+
+### Veure la pantalla de debò (captura)
+
+Per comprovar colors, fonts i textos tallats sense fotografiar la pantalla:
+
+```bash
+# Atura el pont (panel_server.py) i despres:
+python3 tools/captura_pantalla.py [pantalla] [sortida.png]
+```
+
+La placa llegeix la pantalla i l'envia pel port sèrie en RGB565 (base64, per
+franges); l'eina ho reconstrueix com a PNG. Triga uns 40 s.
+
+> **La lectura de la pantalla va a 10 MHz** (`SPI_READ_FREQUENCY` a
+> `tft_setup.h`), no a 20: a 20 MHz arribaven píxels amb canals desviats i la
+> captura sortia amb colors falsos. L'escriptura segueix a 40 MHz.
 
 ### Brillantor del Mac
 
@@ -834,16 +932,67 @@ si canvia) amb la línia `L Safari=safari|Mail=mail|Finder=finder|...`; en tocar
 una app, la placa respon `C focus:N` i el Mac la porta al davant
 (`tell application ... to activate`).
 
-La icona la tria **el Mac** (es qui sap de quina app es): a `mac/bridge.py` hi ha
-la taula `APP_ICONS` (nom de l'app del Mac → nom de la icona de la placa). Si una
-app no hi es, es prova de trobar una icona que es digui igual; si no se'n troba
-cap, el boto surt nomes amb el nom (com abans).
+La icona la treu **el Mac** de la propia app: `mac/bridge.py` escaneja
+`/Applications`, `/System/Applications` (i `/Utilities`), `/System/Library/CoreServices`
+(Finder) i `~/Applications`, i per a cada `.app` llegeix l'`Info.plist` per saber el
+bundle id i la icona. La icona s'extreu de l'`.icns` de `Resources` (amb Pillow) i,
+per a les apps que la porten dins d'`Assets.car` (com Calendari o Ajustos), amb
+`NSWorkspace` (PyObjC, opcional). El resultat es redueix a 32 px amb LANCZOS, es
+desa a la cau (`~/Library/Caches/MacPanel/`, validada pel `mtime` de l'app) i es
+puja a la placa **nomes quan l'app surt al launcher** (una per cicle, sense
+bloquejar el fil del port serie). A la placa hi cap un maxim d'icones d'app, amb
+politica LRU: les que fa mes temps que no es veuen s'esborren.
 
-Les icones de les apps son mes grans que les dels altres botons (56 px en lloc de
-40) perque es reconeguin millor, i el nom s'escurça amb `...` si no hi cap.
+La taula `APP_ICONS` (nom de l'app → icona curada) queda com a **xarxa de
+seguretat** per a les apps que no sapiguem resoldre; si una app tampoc no hi es,
+el boto surt nomes amb el nom.
+
+Les icones son totes de 32 px i es dibuixen 1:1 (sense escalat, per tant sense
+deformacio).
 
 > Per aixo les icones d'app **no** han de tenir el fons transparent: han d'anar a
 > `Assets/icons/apps.txt` (mirau "Posar les teves icones").
+
+### Favorits dels navegadors
+
+La disposició *favs* mostra **la barra de favorits dels navegadors** com a botons
+(2 columnes) amb **el favicon de cada lloc**. Es totalment automatica: no hi ha
+res a configurar ni cap llista a mantenir.
+
+El Mac llegeix els favorits **directament dels fitxers dels navegadors** (no cal
+AppleScript, aixi que funciona encara que el navegador estigui tancat):
+
+| Navegador | D'on es llegeixen |
+|---|---|
+| Safari | `~/Library/Safari/Bookmarks.plist` (plist binari d'Apple) |
+| Chrome, Chrome Beta/Dev/Canary, Chromium, Brave, Edge, Vivaldi | `<perfil>/Bookmarks` (JSON, `roots.bookmark_bar`) |
+| Firefox | `places.sqlite` (SQLite; es copia abans de llegir perque el navegador la te bloquejada) |
+
+Dins de cada navegador es respecta **l'ordre de la barra**. Els favorits del
+navegador que tens **al davant van primers**, i els repetits (mateixa URL) es
+treuen. Es salten els favorits **de fabrica de Safari** (Apple, Yahoo, Google
+Maps, YouTube i les seves carpetes), que son iguals a tots els Macs i omplirien
+la pantalla.
+
+Un cop llegits, el Mac envia la llista amb la linia `B Apple=wwwapplecom|...` i
+**descarrega el favicon** de cada lloc i el puja a la placa d'un en un. Si un
+subdomini no te favicon propi (p.ex. `es.yahoo.com`), es prova el domini pare
+(`yahoo.com`). En tocar un favorit, la placa envia `C fav:N` i el Mac obre
+aquella URL.
+
+> **Qualitat dels favicons**: la icona es demana a **128 px** i la reduim
+> nosaltres amb LANCZOS (premultiplicant l'alfa). Reduir-la nosaltres dona més
+> detall que quedar-nos la versió de 32 px que fa Google pel seu compte: es nota
+> molt a Google, Apple, Spotify o Wikipedia, que tenen icones de 128 px o més.
+> Si el lloc només té una icona de 16 px (Google llavors torna el fitxer petit de
+> debò), es torna a demanar a la mida final, que Google ja torna ampliada.
+>
+> A més, el pont **repesca sol** les icones que es van baixar quan les demanàvem
+> més petites: si en troba una de borrosa a `Assets/icons/`, la torna a baixar un
+> cop i la torna a pujar.
+
+Des del panell es pot triar **quants favorits es mostren** (1-15) i si s'ha
+d'entrar **dins de les carpetes** de la barra.
 
 ### Espais i finestres
 
@@ -883,11 +1032,16 @@ Les seccions "Gadgets de la pantalla" i "Botons de la pantalla" sempre editen la
 Al mateix panell pots triar **Vertical (320×480)** o **Horitzontal (480×320)**.
 La placa gira de debò (rotació del controlador).
 
-### Pantalla fosca mentre es dibuixa
+### Repintat sense flaixos
 
-Quan es repinta (canvi de pantalla o de configuració), la **retroil·luminació
-s'apaga** mentre es pinta i es torna a encendre al final: no es veu mai res a mig
-fer.
+Abans, quan es repintava (canvi de pantalla o de configuració), la
+**retroil·luminació s'apagava** mentre es pintava i es tornava a encendre al
+final. Amagava el "mig pintat", però es veia com un **flaix negre** cada cop que
+canviava alguna cosa (canvi de pantalla, dades que arriben, canvi de tema...) i
+donava la impressió que la pantalla s'encenia i s'apagava tota l'estona.
+
+Ara es pinta amb la llum encesa: el repintat es veu, però dura ~150 ms i no fa
+aquest efecte. La llum només la toquen el **repòs** (standby) i la **brillantor**.
 
 ### Protocol (resum)
 
@@ -922,8 +1076,8 @@ I el Mac informa de l'estat de la seva pantalla dins la línia `S`:
 
 | Camp | Significat |
 |---|---|
-| `dsp=1` | la pantalla del Mac està encesa |
-| `dsp=0` | el Mac ha apagat la pantalla: l'ESP32 també s'apaga |
+| `dsp=1` | la pantalla del Mac està encesa (estat 4 d'`IODisplayWrangler`) |
+| `dsp=0` | el Mac ha apagat la pantalla: l'ESP32 també s'apaga (si hi ha repòs configurat) |
 
 ## Teclat Bluetooth (tecles de debò) — `src/keys.*`
 
@@ -1025,6 +1179,13 @@ Pots escriure qualsevol combinació: modificadors `cmd`, `shift`, `alt`, `ctrl`
 Els botons poden portar una **icona**. Les icones viuen a la targeta SD dins
 `/icons/<nom>.bin` i s'assignen des del panell de control (desplegable "Icona").
 
+> Si la targeta no munta a l'arrencada, la placa **ho reintenta quatre cops**
+> (150 ms entre intents): de vegades triga una mica a estar a punt i, sense els
+> reintents, una arrencada amb pressa deixava la placa sense cap icona fins al
+> proper reinici. Al registre surt `[SD] targeta muntada` o
+> `[SD] no s'ha pogut muntar la targeta`. Si surt això últim i la targeta hi és,
+> comprova el contacte (treu-la i torna-la a posar).
+
 ### Pujar una icona des del panell (el mes facil)
 
 Al panell de control, seccio **"Icones (PNG -> SD)"**:
@@ -1080,8 +1241,9 @@ Aixo es el que ja funciona i el que ve a continuacio:
 - **Gauges** circulars (CPU/RAM/disc/bateria) amb color segons el valor
 - **Rellotge + meteo** (Open-Meteo) amb icona del temps
 - **Numpad** numeric (tecles per Bluetooth)
-- **Launcher** d'apps obertes al Mac **amb la icona de cada app** (es toquen i
-  es porten al davant). El Mac tria la icona (`APP_ICONS` a `mac/bridge.py`).
+- **Launcher** d'apps obertes al Mac **amb la icona real de cada app** (es toquen
+  i es porten al davant). El Mac extreu la icona de la propia `.app`
+  (`mac/bridge.py`), amb `APP_ICONS` com a xarxa de seguretat.
 - **Espais/escriptoris**: canviar d'escriptori, Mission Control, Spotlight, Launchpad
 - **Avisos** a la pantalla (manuals i automatics, p. ex. bateria baixa)
 - Pantalles "Corel" i similars: export, import, group, save, cut, copy, paste,
@@ -1109,10 +1271,12 @@ Aixo es el que ja funciona i el que ve a continuacio:
 | Mac → ESP32 | `N Correu\|LALIGA\|Plazas limitadas…` (avís → bàner) |
 | Mac → ESP32 | `A com.microsoft.VSCode\|Code` (aplicació activa) |
 | Mac → ESP32 | `L Terminal=terminal\|Safari=safari\|Finder=finder` (apps obertes, launcher) |
+| Mac → ESP32 | `T Pestanya 1=googlecom\|Pestanya 2=githubcom` (pestanyes del navegador) |
+| Mac → ESP32 | `B Apple=wwwapplecom\|iCloud=wwwicloudcom` (favorits dels navegadors) |
 | Mac → ESP32 | `F 3,18,11\|61,20,13` (previsió: codi WMO, màx, mín) |
 | Mac → ESP32 | `E Reunió 15:00` (proper esdeveniment) |
 | ESP32 → Mac | `H` (hola, a l'arrencada) |
-| ESP32 → Mac | `C media_play` · `C custom:3` |
+| ESP32 → Mac | `C media_play` · `C custom:3` · `C wake` (desperta la pantalla del Mac) |
 | ESP32 → Mac | `X theme=2` · `X orient=h` · `X standby=60` · `X bright=80` |
 | ESP32 → Mac | `A` (ack de configuració) |
 
@@ -1130,7 +1294,7 @@ Connecta el monitor sèrie (`pio device monitor`) i escriu:
 | Comanda | Què fa |
 |---|---|
 | `help` | ajuda |
-| `info` | estat del sistema i de l'enllaç |
+| `info` | estat del sistema i de l'enllaç (i, al final, per què la pantalla s'apaga o no: `pantalla=… mac=… repos=…s idle=…s`) |
 | `bl <0-100>` | brillantor de la retroil·luminació |
 | `cal` | calibratge del tàctil (assistent a pantalla) |
 | `cfg` / `pages` | mostra la configuració actual |
@@ -1142,6 +1306,8 @@ Connecta el monitor sèrie (`pio device monitor`) i escriu:
 | `tecla <nom>` | **envia una tecla pel Bluetooth** (per provar: `tecla kp_plus`) |
 | `tecles` | llista de noms de tecles disponibles |
 | `apps` | apps obertes al Mac i la icona que els toca (launcher) |
+| `favs` | favorits dels navegadors i el seu favicon (pantalles "favs") |
+| `botons` | geometria dels botons de la pantalla actual (per comprovar on cau un toc) |
 | `splash` | torna a mostrar la pantalla d'inici |
 | `ajust <id>` | prem un botó dels ajustos de la pantalla (per provar: `ajust theme+`) |
 | `bt` | estat del teclat Bluetooth i memòria lliure |

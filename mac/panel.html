@@ -27,9 +27,7 @@
   button.ghost { background: transparent; }
   button.icon { padding: 4px 9px; line-height: 1; }
   .spacer { flex: 1; }
-  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
-         padding: 16px 18px; max-width: 1250px; margin: 0 auto; }
-  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  main { padding: 0; max-width: none; margin: 0; }
   section { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 12px 14px; }
   section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--dim); margin: 0 0 10px; }
   .row { display: flex; align-items: center; gap: 8px; background: var(--card2);
@@ -53,32 +51,53 @@
          margin: 0 18px 24px; max-width: 1250px; }
   .pill { font-size: 12px; color: var(--dim); }
 
-  /* --- Apartats: plegables, arrossegables i redimensionables --------------- */
-  section { position: relative; }
-  section h2 { cursor: pointer; user-select: none; display: flex;
-               align-items: center; gap: 7px; }
-  section h2 .chev { font-size: 11px; color: var(--accent);
-                     transition: transform .15s ease; }
-  section.plegat h2 .chev { transform: rotate(-90deg); }
-  /* Amaguem tot el contingut de l'apartat, pero no la capcalera. */
-  section.plegat > *:not(h2) { display: none !important; }
-  section.plegat { padding-bottom: 8px; }
-  .sec-grip { margin-left: auto; cursor: grab; color: var(--dim);
-              font-size: 13px; letter-spacing: -1px; opacity: 0;
-              transition: opacity .15s; }
-  section h2:hover .sec-grip { opacity: .8; }
-  .sec-grip:active { cursor: grabbing; }
-  section.arrossegant { opacity: .35; }
-  section.dropamunt { box-shadow: 0 -3px 0 -1px var(--accent); }
-  section.dropavall { box-shadow: 0  3px 0 -1px var(--accent); }
+  /* --- Pestanyes ----------------------------------------------------------- *
+   * El panell te molts apartats i en una sola pagina quedava llarg i feixuc.
+   * Ara s'agrupen en pestanyes (ho munta el JavaScript). */
+  nav#tabs { display: flex; gap: 2px; padding: 0 12px; background: var(--card);
+             border-bottom: 1px solid var(--edge); overflow-x: auto; }
+  nav#tabs button { background: transparent; border: none; border-bottom: 2px solid transparent;
+                    border-radius: 0; padding: 11px 14px; color: var(--dim);
+                    white-space: nowrap; font-weight: 500; }
+  nav#tabs button:hover { color: var(--text); border-bottom-color: var(--edge); }
+  nav#tabs button.on { color: var(--accent); border-bottom-color: var(--accent);
+                       font-weight: 600; }
+  .tabpane { display: none; }
+  .tabpane.on { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+                padding: 16px 18px; max-width: 1250px; margin: 0 auto;
+                align-items: start; }
+  @media (max-width: 900px) { .tabpane.on { grid-template-columns: 1fr; } }
+  /* Apartat que ocupa tota l'amplada de la pestanya. */
+  .tabpane > section.ampla { grid-column: 1 / -1; }
 
-  /* Nansa per canviar l'amplada de les dues columnes. */
-  #splitter { position: fixed; width: 11px; cursor: col-resize; z-index: 30;
-              display: none; touch-action: none; }
-  #splitter::after { content: ""; position: absolute; left: 4px; top: 0;
-                     width: 3px; height: 100%; border-radius: 2px;
-                     background: transparent; transition: background .15s; }
-  #splitter:hover::after, #splitter.actiu::after { background: var(--accent); }
+  /* A "Pantalles", la previsualitzacio queda ENGANXADA a la dreta mentre
+   * edites: es la gracia de tenir-la, veure el que fas al moment. */
+  #tab-pantalles > #s-preview { grid-column: 2; grid-row: 1 / span 3;
+                                position: sticky; top: 10px; }
+  #tab-pantalles > #s-pantalles,
+  #tab-pantalles > #s-gadgets,
+  #tab-pantalles > #s-botons { grid-column: 1; }
+  @media (max-width: 900px) {
+    #tab-pantalles > #s-preview { grid-column: 1; grid-row: auto;
+                                  position: static; }
+  }
+  /* A "Apps i icones", la reixeta d'apps i el pujar icones volen tota l'amplada. */
+  #tab-apps > section { grid-column: 1 / -1; }
+
+  /* Reixeta d'apps instal·lades (una icona gran i el nom a sota). */
+  .appgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+             gap: 8px; max-height: 420px; overflow: auto; padding: 4px;
+             background: var(--bg); border: 1px solid var(--edge); border-radius: 10px; }
+  .apptile { display: flex; flex-direction: column; align-items: center; gap: 5px;
+             padding: 9px 4px; border-radius: 10px; cursor: pointer;
+             background: var(--card2); border: 1px solid transparent; }
+  .apptile:hover { border-color: var(--accent); background: var(--card); }
+  .apptile img { width: 44px; height: 44px; object-fit: contain; }
+  .apptile span { font-size: 11px; text-align: center; line-height: 1.2;
+                  max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+  .apptile.buit { opacity: .55; }
+
   .statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .stat { background: var(--card2); border: 1px solid var(--edge); border-radius: 9px; padding: 8px 10px; }
   .stat b { display: block; font-size: 18px; }
@@ -116,8 +135,10 @@
   <span class="pill" id="statsPill"></span>
 </header>
 
+<nav id="tabs"></nav>
+
 <main>
-  <section style="grid-column: 1 / -1">
+  <section id="s-enllac" class="ampla">
     <h2>Enllac amb la placa</h2>
     <div class="toolbar">
       <span class="muted">Mode:</span>
@@ -141,22 +162,8 @@
     El WiFi i el Bluetooth comparteixen radio: si el teclat va lent, torna al cable.</p>
   </section>
 
-  <section style="grid-column: 1 / -1">
+  <section id="s-pantalles" class="ampla">
     <h2>Pantalles</h2>
-    <div class="toolbar">
-      <span class="muted">Columnes:</span>
-      <select id="cols" title="Amplada de les dues columnes del panell">
-        <option value="1">50 / 50</option>
-        <option value="0.65">65 / 35</option>
-        <option value="0.35">35 / 65</option>
-        <option value="0.75">75 / 25</option>
-        <option value="0">Una sola columna</option>
-      </select>
-      <button id="btnPlegar" class="ghost"
-              title="Plegar o desplegar tots els apartats">Plegar-ho tot</button>
-      <button id="btnOrdre" class="ghost"
-              title="Torna a l'ordre original dels apartats">Ordre original</button>
-    </div>
     <div class="toolbar">
       <span class="muted">Orientacio:</span>
       <select id="orientation">
@@ -227,7 +234,7 @@
     <div id="pages"></div>
   </section>
 
-  <section>
+  <section id="s-gadgets">
     <h2>Gadgets de la pantalla</h2>
     <p class="muted" id="gadgetHint"></p>
     <div id="widgets"></div>
@@ -237,19 +244,49 @@
     </div>
   </section>
 
-  <section>
+  <section id="s-favorits">
+    <h2>Favorits dels navegadors</h2>
+    <p class="muted">S'usen a les pantalles de tipus <b>Favorits dels navegadors</b>.
+       El Mac llegeix la barra de favorits de Safari, Chrome, Edge, Brave, Chromium,
+       Vivaldi i Firefox (els de fabrica de Safari es salten) i en descarrega el
+       favicon automaticament. En tocar-ne un, s'obre la URL al navegador de sempre.</p>
+    <div class="row">
+      <span class="name">Quants favorits mostrar</span>
+      <input id="favsMax" type="number" min="1" max="15" step="1" style="width:100px">
+      <span class="muted">(1 a 15)</span>
+    </div>
+    <div class="row">
+      <span class="name">Entrar dins de les carpetes</span>
+      <input id="favsCarpetes" type="checkbox">
+      <span class="muted">tambe agafa els favorits de dins de les carpetes de la barra</span>
+    </div>
+  </section>
+
+  <section id="s-botons" class="ampla">
     <h2>Botons de la pantalla</h2>
-    <p class="muted">Afegeix un boto amb un clic:</p>
+    <p class="muted">Tecles del Mac (volum, musica...). Afegeix-ne una amb un clic:</p>
     <div class="quickadd" id="quickAdd"></div>
-    <p class="muted">Icones: arrossega'n una sobre un boto per posar-l'hi.
-       Per <b>reordenar</b>, arrossega el boto pel símbol ⠿.</p>
-    <div class="palette" id="iconPalette"></div>
+    <p class="muted">Per <b>reordenar</b> un boto, arrossega'l pel símbol ⠿.</p>
     <div id="buttons"></div>
     <button id="btnAdd" class="ghost">+ Afegeix un boto personalitzat</button>
   </section>
 
-  <section>
-    <h2>Icones (PNG -&gt; SD)</h2>
+  <section id="s-apps" class="ampla">
+    <h2>Apps instal·lades al Mac</h2>
+    <p class="muted">Aquestes son les aplicacions que tens instal·lades al Mac
+       (les de debò: els ajudants de fons no hi surten). Fes clic a una i
+       s'afegira un boto a la pantalla actual amb <b>la seva icona de debò</b>.
+       El boto obra l'app si esta tancada i la porta al davant si ja hi es.</p>
+    <div class="row">
+      <input type="text" id="appCerca" placeholder="Cerca una app..." style="flex:1">
+      <span class="pill" id="appCompta"></span>
+      <button id="btnRecarregaApps" class="ghost">Recarrega</button>
+    </div>
+    <div class="appgrid" id="appGrid"></div>
+  </section>
+
+  <section id="s-icones">
+    <h2>Puja una icona (PNG -&gt; SD)</h2>
     <p class="muted">Puja un PNG (64x64 o mes, fons transparent) i es desara a la pantalla.</p>
     <div class="row">
       <input type="file" id="iconFile" accept="image/png" style="flex:1">
@@ -265,7 +302,7 @@
     <div class="quickadd" id="iconList"></div>
   </section>
 
-  <section>
+  <section id="s-avisos-placa">
     <h2>Avisos a la pantalla</h2>
     <p class="muted">Envia un missatge que surt a la capcalera de la placa uns segons.</p>
     <div class="row">
@@ -276,7 +313,7 @@
     <p class="muted">Tambe surten avisos automatics (p. ex. bateria baixa).</p>
   </section>
 
-  <section>
+  <section id="s-ajustos-placa">
     <h2>Ajustos de la placa</h2>
     <div class="row">
       <span class="name">Brillantor</span>
@@ -293,7 +330,7 @@
     <p class="muted">El calibratge del tactil es fa mirant la pantalla de la placa.</p>
   </section>
 
-  <section>
+  <section id="s-avisos-mac">
     <h2>Avisos del Mac (notificacions)</h2>
     <div class="toolbar">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -309,7 +346,7 @@
     <div id="notifList"></div>
   </section>
 
-  <section>
+  <section id="s-app-ara">
     <h2>Aplicacio que estas fent servir</h2>
     <div class="row">
       <span class="name">Ara mateix</span>
@@ -323,15 +360,16 @@
     <div id="appPages"></div>
   </section>
 
-  <section>
+  <section id="s-estat">
     <h2>Estat del Mac (en viu)</h2>
     <div class="statgrid" id="stats"></div>
   </section>
 
-  <section>
+  <section id="s-preview" class="ampla">
     <h2>Previsualitzacio</h2>
     <div id="preview" style="display:flex;justify-content:center"></div>
-    <p class="muted">Aproximacio de la pantalla de la placa (pestanyes a baix).</p>
+    <p class="muted">Aproximacio de la pantalla de la placa (pestanyes a baix).
+       Els colors son els del tema triat.</p>
   </section>
 </main>
 
@@ -440,6 +478,8 @@ function toggleAutoThemes() {
 function loadFromConfig(c) {
   cfg = JSON.parse(JSON.stringify(c || {}));
   if (!cfg.refresh_ms) cfg.refresh_ms = 1000;
+  if (cfg.favs_max === undefined || cfg.favs_max === null) cfg.favs_max = 15;
+  if (cfg.favs_carpetes === undefined || cfg.favs_carpetes === null) cfg.favs_carpetes = 0;
   if (!cfg.orientation) cfg.orientation = "v";
   if (cfg.standby_s === undefined || cfg.standby_s === null) cfg.standby_s = 0;
   if (cfg.idle_min === undefined || cfg.idle_min === null) cfg.idle_min = 5;
@@ -474,9 +514,16 @@ function loadFromConfig(c) {
   document.getElementById("notifOn").checked = !!cfg.notif_on;
   document.getElementById("nav").value = cfg.nav;
   document.getElementById("refreshMs").value = cfg.refresh_ms;
+  document.getElementById("favsMax").value = String(cfg.favs_max != null ? cfg.favs_max : 15);
+  document.getElementById("favsCarpetes").checked =
+    String(cfg.favs_carpetes == null ? 0 : cfg.favs_carpetes) === "1";
   customSeq = 1 + cfg.pages.reduce((n, p) =>
     n + p.buttons.filter(b => String(b.id || "").startsWith("custom:")).length, 0);
   syncWidgets();
+  /* Sense aixo, en obrir el panell les llistes de pantalles, gadgets i botons
+   * sortien BUIDES: aquestes les pinta renderAll(), i nomes es cridava en
+   * clicar alguna cosa. Calia tocar una pantalla per veure que hi havia. */
+  renderAll();
 }
 
 function movePage(i, d) {
@@ -528,7 +575,8 @@ function renderPages() {
      ["gauges", "Gauges circulars"], ["graph", "Grafics (historial)"],
      ["clock", "Rellotge + meteo"],
      ["numpad", "Teclat numeric"], ["launcher", "Launcher (apps obertes)"],
-     ["tabs", "Pestanyes del navegador"]].forEach(([v, l]) => {
+     ["tabs", "Pestanyes del navegador"],
+     ["favs", "Favorits dels navegadors"]].forEach(([v, l]) => {
       ly.appendChild(el("option", Object.assign({ value: v }, v === p.layout ? { selected: "selected" } : {}), l));
     });
     ly.addEventListener("change", () => { p.layout = ly.value; syncWidgets(); renderAll(); });
@@ -624,28 +672,6 @@ function netejaCanvis() {
 }
 
 /* Paleta d'icones: s'arrossega una icona sobre un boto i se li assigna. */
-function renderIconPalette() {
-  const box = document.getElementById("iconPalette");
-  box.innerHTML = "";
-  const icons = state.icons || [];
-  if (!icons.length) {
-    box.appendChild(el("span", { class: "hint" },
-      "Encara no hi ha icones a la placa (puja'n mes avall)."));
-    return;
-  }
-  box.appendChild(el("span", { class: "hint" }, "icones →"));
-  for (const k of icons) {
-    const img = el("img", { src: "/icons/" + k + ".png", title: k, draggable: "true" });
-    img.addEventListener("dragstart", (e) => {
-      dragIcon = k;
-      dragBtnIdx = -1;
-      e.dataTransfer.effectAllowed = "copy";
-      e.dataTransfer.setData("text/plain", "icon:" + k);
-    });
-    img.addEventListener("dragend", () => { dragIcon = null; netejaMarques(); });
-    box.appendChild(img);
-  }
-}
 
 function renderButtons() {
   const box = document.getElementById("buttons");
@@ -824,6 +850,38 @@ function previewPct(id) {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
+/* Colors de cada tema, mirall de src/theme.cpp. La previsualitzacio els fa
+ * servir perque el que veus al panell sigui el que tindras a la pantalla. */
+const TEMES_PV = [
+  { nom: "Fosc",    bg: "#0c1321", bg2: "#060a14", card: "#1e2b3e", edge: "#344c6a",
+    text: "#ecf3ff", dim: "#92a4bc", accent: "#3e96ff", ok: "#3cd282",
+    warn: "#ffbe46", bad: "#ff5862", btn: "#243348", btnP: "#2c70be" },
+  { nom: "Clar",    bg: "#f0f4f8", bg2: "#e0e6ee", card: "#ffffff", edge: "#c4ceda",
+    text: "#181e28", dim: "#6c7888", accent: "#006ed2", ok: "#00a050",
+    warn: "#d78200", bad: "#d72832", btn: "#e6edf5", btnP: "#c6ddf8" },
+  { nom: "Neo",     bg: "#0c0b14", bg2: "#040409", card: "#221f30", edge: "#4c4274",
+    text: "#f6f5ff", dim: "#9a95b4", accent: "#ff40dc", ok: "#3ee67a",
+    warn: "#ffd43e", bad: "#ff485c", btn: "#28233a", btnP: "#702c86" },
+  { nom: "Grafite", bg: "#181c22", bg2: "#0f1217", card: "#2c333c", edge: "#485360",
+    text: "#f0f4fa", dim: "#98a3af", accent: "#3ec8be", ok: "#48cd84",
+    warn: "#f0be50", bad: "#f06066", btn: "#303842", btnP: "#227c78" },
+  { nom: "Pastel",  bg: "#f8f4ee", bg2: "#ece6de", card: "#ffffff", edge: "#d6ccc0",
+    text: "#3a3430", dim: "#8c8076", accent: "#5a82dc", ok: "#46af78",
+    warn: "#e19b32", bad: "#dc5a5a", btn: "#eee8e0", btnP: "#cbdbf5" },
+  { nom: "HUD",     bg: "#0b1320", bg2: "#050a13", card: "#1c2a3c", edge: "#305470",
+    text: "#ecfaff", dim: "#8aa8c0", accent: "#00dcf0", ok: "#00dc96",
+    warn: "#ffc846", bad: "#ff5c5c", btn: "#22344a", btnP: "#00708a" },
+];
+
+/* Quin tema s'esta fent servir de debò (te en compte el tema automatic). */
+function temaPreview() {
+  const s = state.stats || {};
+  let t = cfg.theme_auto ? (s.dark ? cfg.theme_dark : cfg.theme_light) : cfg.theme;
+  t = parseInt(t, 10);
+  if (!(t >= 0 && t < TEMES_PV.length)) t = 0;
+  return TEMES_PV[t];
+}
+
 function renderPreview() {
   const box = document.getElementById("preview");
   box.innerHTML = "";
@@ -832,6 +890,7 @@ function renderPreview() {
   const H = horiz ? 320 : 480;
   const S = horiz ? 0.62 : 0.5;
   const page = curPg();
+  const pv = temaPreview();
   const tabH = (cfg.pages.length > 1) ? 34 : 0;
 
   const canvas = document.createElement("canvas");
@@ -841,15 +900,15 @@ function renderPreview() {
   canvas.style.border = "1px solid #2c3746";
   canvas.style.borderRadius = "10px";
   const g = canvas.getContext("2d");
-  g.fillStyle = "#101a24"; g.fillRect(0, 0, W, H);
+  g.fillStyle = pv.bg2; g.fillRect(0, 0, W, H);
   g.font = "15px -apple-system, sans-serif";
 
-  g.fillStyle = "#1d2836"; g.fillRect(0, 0, W, 30);
-  g.fillStyle = "#e8eef7"; g.fillText((state.stats || {}).time || "--:--", 6, 21);
-  g.fillStyle = "#8b9bb0"; g.textAlign = "center";
+  g.fillStyle = pv.card; g.fillRect(0, 0, W, 30);
+  g.fillStyle = pv.text; g.fillText((state.stats || {}).time || "--:--", 6, 21);
+  g.fillStyle = pv.dim; g.textAlign = "center";
   g.fillText((state.stats || {}).host || "Mac", W / 2, 21);
   g.textAlign = "right";
-  g.fillStyle = state.connected ? "#35d07f" : "#ff5b6a";
+  g.fillStyle = state.connected ? pv.ok : pv.bad;
   g.fillText(state.connected ? "LINK" : "NO LINK", W - 6, 21);
   g.textAlign = "left";
 
@@ -872,39 +931,40 @@ function renderPreview() {
       const cx = (i % gcols) * cw + cw / 2;
       const cy = 30 + Math.floor(i / gcols) * ch + ch / 2 - 6;
       const pct = Math.max(0, previewPct(wid));
-      g.fillStyle = "#1d2836"; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = pv.card; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
       g.lineWidth = 7;
-      g.strokeStyle = "#2c3746"; g.beginPath();
+      g.strokeStyle = pv.edge; g.beginPath();
       g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 2.25); g.stroke();
-      g.strokeStyle = pct >= 90 ? "#ff5b6a" : pct >= 70 ? "#ffcc4d" : "#35d07f";
+      g.strokeStyle = pct >= 90 ? pv.bad : pct >= 70 ? pv.warn : pv.ok;
       g.beginPath(); g.arc(cx, cy, r - 4, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * pct / 100); g.stroke();
       g.lineWidth = 1;
-      g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "16px -apple-system,sans-serif";
+      g.fillStyle = pv.text; g.textAlign = "center"; g.font = "16px -apple-system,sans-serif";
       g.fillText(pct + "%", cx, cy + 5);
-      g.fillStyle = "#8b9bb0"; g.font = "12px -apple-system,sans-serif";
+      g.fillStyle = pv.dim; g.font = "12px -apple-system,sans-serif";
       g.fillText(wid.toUpperCase(), cx, cy + r + 13);
       g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
     });
   } else if (isClock) {
     const s = state.stats || {};
     g.textAlign = "center";
-    g.fillStyle = "#e8eef7"; g.font = "44px -apple-system, sans-serif";
+    g.fillStyle = pv.text; g.font = "44px -apple-system, sans-serif";
     g.fillText(s.time || "--:--", W / 2, 30 + (contentBot - 30) / 3);
-    g.font = "17px -apple-system, sans-serif"; g.fillStyle = "#8b9bb0";
+    g.font = "17px -apple-system, sans-serif"; g.fillStyle = pv.dim;
     g.fillText(((s.wd || "") + "  " + (s.date || "")).trim(), W / 2, 30 + (contentBot - 30) / 3 + 32);
     g.textAlign = "left"; g.font = "15px -apple-system, sans-serif";
     const im = getIconImg(weatherIconJs());
     const isz = 44;
     const iy = 30 + (contentBot - 30) * 2 / 3;
     if (im && im.complete && im.naturalWidth) g.drawImage(im, W / 2 - isz / 2, iy - isz / 2, isz, isz);
-    g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "18px -apple-system,sans-serif";
+    g.fillStyle = pv.text; g.textAlign = "center"; g.font = "18px -apple-system,sans-serif";
     g.fillText(Math.round(s.temp || 0) + " C", W / 2, iy + isz / 2 + 20);
     g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
-  } else if (page.layout === "tabs") {
-    // La llista de pestanyes la posa el Mac en viu (requereix placa): a la
-    // previsio mostrem un exemple de com quedaran (favicon + titol).
-    g.fillStyle = "#8b9bb0"; g.font = "13px -apple-system,sans-serif";
-    g.fillText("Pestanyes del navegador obert:", 8, y + 6);
+  } else if (page.layout === "tabs" || page.layout === "favs") {
+    // La llista (pestanyes o favorits) la posa el Mac en viu (requereix placa):
+    // a la previsio mostrem un exemple de com quedaran (favicon + titol).
+    g.fillStyle = pv.dim; g.font = "13px -apple-system,sans-serif";
+    g.fillText(page.layout === "favs" ? "Barra de favorits dels navegadors:"
+                                      : "Pestanyes del navegador obert:", 8, y + 6);
     y += 26;
     const exemples = [
       { nom: "exemple1", titol: "pestanya 1" }, { nom: "exemple2", titol: "pestanya 2" },
@@ -913,25 +973,25 @@ function renderPreview() {
     const cols = 2, cellW = (W - 6) / cols, cellH = 62;
     exemples.forEach((ex, i) => {
       const cx = 3 + (i % cols) * cellW, cy = y + Math.floor(i / cols) * (cellH + 4);
-      g.fillStyle = "#1d2836"; roundRect(g, cx + 2, cy, cellW - 4, cellH, 8); g.fill();
+      g.fillStyle = pv.card; roundRect(g, cx + 2, cy, cellW - 4, cellH, 8); g.fill();
       const im = getIconImg(ex.nom); const isz = 26;
       if (im && im.complete && im.naturalWidth) g.drawImage(im, cx + cellW / 2 - isz / 2, cy + 7, isz, isz);
-      g.fillStyle = "#e8eef7"; g.textAlign = "center"; g.font = "12px -apple-system,sans-serif";
+      g.fillStyle = pv.text; g.textAlign = "center"; g.font = "12px -apple-system,sans-serif";
       g.fillText(ex.titol, cx + cellW / 2, cy + cellH - 9);
       g.textAlign = "left"; g.font = "15px -apple-system,sans-serif";
     });
     y += Math.ceil(exemples.length / cols) * (cellH + 4);
   } else if (page.layout === "status") {
     for (const w of (page.widgets || [])) {
-      g.fillStyle = "#1d2836"; roundRect(g, 6, y + 2, W - 12, 30, 6); g.fill();
-      g.fillStyle = "#8b9bb0"; g.fillText(w.toUpperCase(), 14, y + 20);
-      g.fillStyle = "#e8eef7"; g.textAlign = "right";
+      g.fillStyle = pv.card; roundRect(g, 6, y + 2, W - 12, 30, 6); g.fill();
+      g.fillStyle = pv.dim; g.fillText(w.toUpperCase(), 14, y + 20);
+      g.fillStyle = pv.text; g.textAlign = "right";
       g.fillText(previewValue(w), W - 14, y + 20);
       g.textAlign = "left";
       const pct = previewPct(w);
       if (pct >= 0) {
-        g.fillStyle = "#2c3746"; g.fillRect(14, y + 24, W - 28, 5);
-        g.fillStyle = pct >= 90 ? "#ff5b6a" : pct >= 70 ? "#ffcc4d" : "#35d07f";
+        g.fillStyle = pv.edge; g.fillRect(14, y + 24, W - 28, 5);
+        g.fillStyle = pct >= 90 ? pv.bad : pct >= 70 ? pv.warn : pv.ok;
         g.fillRect(14, y + 24, (W - 28) * pct / 100, 5);
       }
       y += 34;
@@ -957,16 +1017,16 @@ function renderPreview() {
   btns.forEach((b, i) => {
     const cx = pad + (i % cols) * (cellW + gap);
     const cy = top + Math.floor(i / cols) * (cellH + gap);
-    g.fillStyle = "#26333f"; roundRect(g, cx, cy, cellW, cellH, 8); g.fill();
-    g.strokeStyle = "#3a4756"; g.stroke();
+    g.fillStyle = pv.card; roundRect(g, cx, cy, cellW, cellH, 8); g.fill();
+    g.strokeStyle = pv.edge; g.stroke();
     const img = getIconImg(b.icon);
     const isz = Math.min(30, Math.max(10, cellH - 20));
     if (img && img.complete && img.naturalWidth) {
       g.drawImage(img, cx + cellW / 2 - isz / 2, cy + 3, isz, isz);
-      g.fillStyle = "#e8eef7"; g.textAlign = "center";
+      g.fillStyle = pv.text; g.textAlign = "center";
       g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH - 4);
     } else {
-      g.fillStyle = "#e8eef7"; g.textAlign = "center";
+      g.fillStyle = pv.text; g.textAlign = "center";
       g.fillText(b.label || b.id, cx + cellW / 2, cy + cellH / 2 + 5);
     }
     g.textAlign = "left";
@@ -974,13 +1034,13 @@ function renderPreview() {
 
   if (tabH) {
     const ty = H - tabH;
-    g.fillStyle = "#1d2836"; g.fillRect(0, ty, W, tabH);
+    g.fillStyle = pv.card; g.fillRect(0, ty, W, tabH);
     const tw = W / cfg.pages.length;
     cfg.pages.forEach((p, i) => {
       if (i === curPage) {
-        g.fillStyle = "#05bfbf"; roundRect(g, i * tw + 2, ty + 3, tw - 4, tabH - 6, 6); g.fill();
+        g.fillStyle = pv.accent; roundRect(g, i * tw + 2, ty + 3, tw - 4, tabH - 6, 6); g.fill();
       }
-      g.fillStyle = (i === curPage) ? "#e8eef7" : "#8b9bb0";
+      g.fillStyle = (i === curPage) ? pv.text : pv.dim;
       g.textAlign = "center";
       g.fillText((p.name || "?").slice(0, Math.max(1, Math.floor((tw - 10) / 6))), i * tw + tw / 2, ty + tabH / 2 + 5);
       g.textAlign = "left";
@@ -1113,16 +1173,20 @@ function renderApps() {
   });
 }
 
+/* Les icones es trien de la reixeta d'apps instal·lades (pestanya "Apps i
+ * icones"): abans hi havia una paleta amb 121 icones generiques que no tenien
+ * res a veure amb el Mac de l'usuari. Ara cada app es pot arrossegar sobre un
+ * boto per posar-li la seva icona. */
 function renderAll() {
   renderPages();
   renderWidgets();
   renderQuickAdd();
-  renderIconPalette();
   renderButtons();
   renderPreview();
   renderStats();
   renderNotifs();
   renderApps();
+  renderAppGrid();
 }
 
 function updateHeader() {
@@ -1179,6 +1243,9 @@ async function save() {
   cfg.notif_on = document.getElementById("notifOn").checked;
   cfg.nav = document.getElementById("nav").value;
   cfg.refresh_ms = parseInt(document.getElementById("refreshMs").value, 10) || 1000;
+  cfg.favs_max = Math.max(1, Math.min(15,
+    parseInt(document.getElementById("favsMax").value, 10) || 15));
+  cfg.favs_carpetes = document.getElementById("favsCarpetes").checked ? 1 : 0;
   cfg.pages.forEach(p => {
     if (!Array.isArray(p.widgets)) p.widgets = [];
     p.apps = (p.apps || []).filter(a => String(a).trim());
@@ -1242,8 +1309,20 @@ document.getElementById("theme").addEventListener("change", () => {
   toggleAutoThemes();
   renderPreview();
 });
+document.getElementById("themeDark").addEventListener("change", renderPreview);
+document.getElementById("themeLight").addEventListener("change", renderPreview);
 document.getElementById("refreshMs").addEventListener("change", () => {
   cfg.refresh_ms = parseInt(document.getElementById("refreshMs").value, 10) || 1000;
+});
+
+/* Favorits: quants se'n mostren i si s'entra dins de les carpetes. */
+document.getElementById("favsMax").addEventListener("change", () => {
+  cfg.favs_max = Math.max(1, Math.min(15,
+    parseInt(document.getElementById("favsMax").value, 10) || 15));
+  document.getElementById("favsMax").value = String(cfg.favs_max);
+});
+document.getElementById("favsCarpetes").addEventListener("change", () => {
+  cfg.favs_carpetes = document.getElementById("favsCarpetes").checked ? 1 : 0;
 });
 
 /* Notificacions: activar/aturar i una de prova. */
@@ -1379,233 +1458,173 @@ document.getElementById("btnApplyLink").addEventListener("click", async () => {
   poll();
 });
 
-/* --- Apartats: plegar, arrossegar i redimensionar ------------------------- *
- * El panell te molts apartats i queda molt llarg. Amb aixo es pot plegar el
- * que no es fa servir, moure'ls d'ordre arrossegant la nansa ⠿ de la
- * capcalera, i canviar l'amplada de les dues columnes. Tot queda desat al
- * navegador. */
-const SEC_KEY = "macpanel.seccions.v1";
-let secOrdre = [];
-let secOrdreOriginal = [];
-let secPlegats = {};
-let secDragId = null;
-let splitFrac = 1;
+/* --- Pestanyes ------------------------------------------------------------ *
+ * El panell te molts apartats i en una sola pagina quedava llarg i feixuc: cal
+ * anar baixant i no saps on es cada cosa. Els agrupem en pestanyes, i cada
+ * apartat va a la que li toca. Els apartats es MOUEN aqui (no cal tocar
+ * l'ordre del HTML ni duplicar-lo). */
+const PESTANYES = [
+  { id: "pantalles", nom: "Pantalles", secs: [
+      "s-pantalles", "s-gadgets", "s-botons", "s-preview"] },
+  { id: "apps", nom: "Apps i icones", secs: [
+      "s-apps", "s-icones"] },
+  { id: "avisos", nom: "Avisos", secs: [
+      "s-avisos-placa", "s-avisos-mac"] },
+  { id: "ajustos", nom: "Ajustos", secs: [
+      "s-enllac", "s-favorits", "s-ajustos-placa"] },
+  { id: "estat", nom: "Estat", secs: [
+      "s-estat", "s-app-ara"] },
+];
 
-function secsTotes() {
-  return [...document.querySelectorAll("main > section")];
-}
-
-function netejaMarquesSec() {
-  secsTotes().forEach(s =>
-    s.classList.remove("arrossegant", "dropamunt", "dropavall"));
-}
-
-function desaSecs() {
-  try {
-    localStorage.setItem(SEC_KEY, JSON.stringify({
-      ordre: secOrdre, plegats: secPlegats, cols: splitFrac,
-    }));
-  } catch (e) { /* pot estar bloquejat: no passa res */ }
-}
-
-function aplicaSecs() {
+function muntaPestanyes() {
   const main = document.querySelector("main");
-  const perId = {};
-  secsTotes().forEach(s => { perId[s.id] = s; });
-
-  /* Primer els que tenen lloc assignat, despres la resta (nous). */
-  secOrdre.forEach(id => { if (perId[id]) main.appendChild(perId[id]); });
-  secsTotes().forEach(s => {
-    if (!secOrdre.includes(s.id)) main.appendChild(s);
+  const nav = document.getElementById("tabs");
+  const panes = {};
+  PESTANYES.forEach((t, i) => {
+    const pane = el("div", { class: "tabpane", id: "tab-" + t.id });
+    main.appendChild(pane);
+    panes[t.id] = pane;
+    const b = el("button", { type: "button" }, t.nom);
+    b.dataset.tab = t.id;
+    b.addEventListener("click", () => mostraPestanya(t.id));
+    nav.appendChild(b);
   });
-
-  secsTotes().forEach(s => s.classList.toggle("plegat", !!secPlegats[s.id]));
-  aplicaCols();
+  PESTANYES.forEach(t => {
+    t.secs.forEach(sid => {
+      const s = document.getElementById(sid);
+      if (s) panes[t.id].appendChild(s);
+    });
+  });
 }
 
-function toggleSec(id) {
-  secPlegats[id] = !secPlegats[id];
-  aplicaSecs();
-  desaSecs();
+/* La pestanya tambe va a l'adreça (#apps, #avisos...): aixi es pot enllaçar o
+ * guardar als marcadors i obrir el panell directament on vols. */
+function pestanyaDesDeHash() {
+  const h = (location.hash || "").replace(/^#/, "");
+  return PESTANYES.some(t => t.id === h) ? h : "";
 }
 
-function aplicaCols() {
-  const main = document.querySelector("main");
-  if (splitFrac === 0) {
-    main.style.gridTemplateColumns = "1fr";
-  } else {
-    main.style.gridTemplateColumns =
-      splitFrac + "fr " + (1 - splitFrac).toFixed(2) + "fr";
+function mostraPestanya(id, guardaHash) {
+  document.querySelectorAll(".tabpane").forEach(p =>
+    p.classList.toggle("on", p.id === "tab-" + id));
+  document.querySelectorAll("#tabs button").forEach(b =>
+    b.classList.toggle("on", b.dataset.tab === id));
+  if (guardaHash !== false) {
+    try { if (location.hash !== "#" + id) location.hash = id; } catch (e) { /* res */ }
   }
-  posaSplitter();
+  try { localStorage.setItem("macpanel.pestanya", id); } catch (e) { /* res */ }
+  /* En entrar a la pestanya d'apps, assegurem que la llista estigui fresca. */
+  if (id === "apps") carregaApps();
+  /* El canvas no es pot pintar fins que tenim la configuracio del Mac. */
+  if (id === "pantalles" && cfg.pages.length) renderPreview();
 }
 
-function posaSplitter() {
-  const sp = document.getElementById("splitter");
-  const main = document.querySelector("main");
-  if (!sp || !main) return;
-  const dues = window.matchMedia("(min-width: 901px)").matches;
-  if (!dues || splitFrac === 0) {
-    sp.style.display = "none";
+window.addEventListener("hashchange", () => {
+  const id = pestanyaDesDeHash();
+  if (id) mostraPestanya(id, false);
+});
+
+/* --- Apps instal·lades al Mac --------------------------------------------- *
+ * El mes util per a l'usuari: veure les seves apps de debò (amb la icona de
+ * debò) i fer-ne un boto amb un clic. La llista ve de /api/apps, que recorre
+ * les carpetes d'aplicacions i llegeix els Info.plist (~150), aixi que es
+ * demana a part i es guarda a memoria. */
+let appsMac = [];
+let appsDemanades = false;
+
+function carregaApps(force) {
+  if (appsDemanades && !force) return;
+  appsDemanades = true;
+  /* api() ja captura els errors i torna {}: si ve buit, es que el pont encara
+   * no ens ha pogut respondre i ho tornarem a provar la propera vegada. */
+  api("/api/apps").then(d => {
+    appsMac = (d && d.apps) || [];
+    if (!appsMac.length) appsDemanades = false;
+    renderAppGrid();
+  });
+}
+
+function afegeixBotoApp(app) {
+  const page = curPg();
+  if (!page) return;                 /* encara no tenim la configuracio */
+  if (!Array.isArray(page.buttons)) page.buttons = [];
+  /* Si ja hi es, no la dupliquem: nomes la tornem a activar. */
+  const ja = page.buttons.find(b => b.id === "app:" + app.bundle);
+  if (ja) {
+    ja.enabled = true;
+    marcaCanvis();
+    renderAll();
     return;
   }
-  const r = main.getBoundingClientRect();
-  sp.style.display = "block";
-  sp.style.left = (r.left + r.width * splitFrac - 5) + "px";
-  sp.style.top = r.top + "px";
-  sp.style.height = r.height + "px";
+  page.buttons.push({ id: "app:" + app.bundle, label: app.name,
+                      icon: app.icon || "", keys: "", enabled: true,
+                      customLabel: false, customKeys: false });
+  marcaCanvis();
+  renderAll();
 }
 
-/* Si s'arrossega la nansa a un lloc que no es cap valor del desplegable, n'hi
- * afegim un de temporal perque el desplegable no digui una cosa falsa. */
-function marcaColsCustom() {
-  const sel = document.getElementById("cols");
-  const val = String(splitFrac);
-  let op = sel.querySelector("option[data-custom]");
-  if (!op) {
-    op = el("option", { "data-custom": "1" });
-    sel.appendChild(op);
+function renderAppGrid() {
+  const box = document.getElementById("appGrid");
+  if (!box) return;
+  const filtre = (document.getElementById("appCerca").value || "").toLowerCase();
+  const llista = appsMac.filter(a =>
+    !filtre || a.name.toLowerCase().includes(filtre) ||
+    a.bundle.toLowerCase().includes(filtre));
+  document.getElementById("appCompta").textContent =
+    appsMac.length ? (llista.length + " de " + appsMac.length + " apps")
+                   : "llegint les apps del Mac...";
+  box.innerHTML = "";
+  if (!appsMac.length) {
+    box.appendChild(el("p", { class: "muted", style: "padding:10px" },
+      "Encara no s'han llegit. Comprova que el pont estigui connectat."));
+    return;
   }
-  op.value = val;
-  op.textContent = Math.round(splitFrac * 100) + " / " +
-                   Math.round((1 - splitFrac) * 100);
-  sel.value = val;
+  const page = curPg();
+  const botons = (page && page.buttons) || [];
+  for (const a of llista) {
+    const te = botons.some(b => b.id === "app:" + a.bundle);
+    const tile = el("div", { class: "apptile" + (te ? " buit" : ""),
+                             title: a.bundle + (te ? "  (ja hi es)"
+                                                   : "  (clic per afegir-la)") });
+    if (a.icon) {
+      /* L'icona tambe es pot arrossegar sobre un boto que ja existeixi. */
+      const img = el("img", { src: "/icons/" + a.icon + ".png", alt: "",
+                              draggable: "true" });
+      img.addEventListener("dragstart", (e) => {
+        dragIcon = a.icon;
+        dragBtnIdx = -1;
+        e.dataTransfer.effectAllowed = "copy";
+        e.dataTransfer.setData("text/plain", "icon:" + a.icon);
+      });
+      img.addEventListener("dragend", () => { dragIcon = null; netejaMarques(); });
+      tile.appendChild(img);
+    }
+    tile.appendChild(el("span", {}, a.name));
+    tile.addEventListener("click", () => afegeixBotoApp(a));
+    box.appendChild(tile);
+  }
 }
 
-function initSplitter() {
-  const sp = el("div", { id: "splitter" });
-  document.body.appendChild(sp);
+/* --- Arrencada del panell -------------------------------------------------- */
 
-  sp.addEventListener("pointerdown", (ev) => {
-    ev.preventDefault();
-    sp.classList.add("actiu");
-    sp.setPointerCapture(ev.pointerId);
-    const main = document.querySelector("main");
-    const r = main.getBoundingClientRect();
-    const mou = (e) => {
-      let f = (e.clientX - r.left) / r.width;
-      f = Math.max(0.2, Math.min(0.8, f));
-      splitFrac = Math.round(f * 100) / 100;
-      marcaColsCustom();
-      aplicaCols();
-    };
-    const fi = () => {
-      sp.classList.remove("actiu");
-      window.removeEventListener("pointermove", mou);
-      window.removeEventListener("pointerup", fi);
-      desaSecs();
-    };
-    window.addEventListener("pointermove", mou);
-    window.addEventListener("pointerup", fi);
-  });
+document.getElementById("appCerca").addEventListener("input", renderAppGrid);
+document.getElementById("btnRecarregaApps").addEventListener("click", () => {
+  carregaApps(true);
+});
 
-  window.addEventListener("resize", posaSplitter);
-  window.addEventListener("scroll", posaSplitter, { passive: true });
-}
+/* --- Arrencada ------------------------------------------------------------ */
+muntaPestanyes();
 
-function initSecs() {
-  const secs = secsTotes();
-  secs.forEach((s, i) => {
-    if (!s.id) s.id = "sec" + i;
-    const h2 = s.querySelector("h2");
-    if (!h2) return;
-
-    h2.prepend(el("span", { class: "chev" }, "▾"));
-
-    const grip = el("span", { class: "sec-grip", draggable: "true",
-                              title: "Arrossega per moure aquest apartat" }, "⠿");
-    grip.addEventListener("dragstart", (e) => {
-      secDragId = s.id;
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", "sec:" + s.id);
-      s.classList.add("arrossegant");
-    });
-    grip.addEventListener("dragend", () => {
-      secDragId = null;
-      netejaMarquesSec();
-    });
-    h2.appendChild(grip);
-
-    h2.addEventListener("click", (e) => {
-      if (e.target === grip) return;      /* la nansa no plega */
-      toggleSec(s.id);
-    });
-
-    s.addEventListener("dragover", (e) => {
-      if (secDragId === null || secDragId === s.id) return;
-      e.preventDefault();
-      const r = s.getBoundingClientRect();
-      const abans = (e.clientY - r.top) < r.height / 2;
-      netejaMarquesSec();
-      s.classList.add(abans ? "dropamunt" : "dropavall");
-    });
-    s.addEventListener("dragleave", () => {
-      s.classList.remove("dropamunt", "dropavall");
-    });
-    s.addEventListener("drop", (e) => {
-      e.preventDefault();
-      if (secDragId === null || secDragId === s.id) return;
-      const r = s.getBoundingClientRect();
-      const abans = (e.clientY - r.top) < r.height / 2;
-      const ordre = secsTotes().map(x => x.id);
-      const from = ordre.indexOf(secDragId);
-      if (from < 0) return;
-      ordre.splice(from, 1);
-      let to = ordre.indexOf(s.id);
-      if (to < 0) to = ordre.length;
-      ordre.splice(abans ? to : to + 1, 0, secDragId);
-      secOrdre = ordre;
-      secDragId = null;
-      netejaMarquesSec();
-      aplicaSecs();
-      desaSecs();
-    });
-  });
-
-  secOrdreOriginal = secs.map(s => s.id);
-}
-
-function carregaSecs() {
+let pestaInicial = pestanyaDesDeHash();
+if (!pestaInicial) {
   try {
-    const d = JSON.parse(localStorage.getItem(SEC_KEY) || "{}");
-    if (Array.isArray(d.ordre)) secOrdre = d.ordre;
-    if (d.plegats) secPlegats = d.plegats;
-    if (typeof d.cols === "number") splitFrac = d.cols;
+    const desada = localStorage.getItem("macpanel.pestanya");
+    if (desada && PESTANYES.some(t => t.id === desada)) pestaInicial = desada;
   } catch (e) { /* res */ }
-  const sel = document.getElementById("cols");
-  const val = String(splitFrac);
-  if ([...sel.options].some(o => o.value === val)) {
-    sel.value = val;
-  } else if (splitFrac !== 1) {
-    marcaColsCustom();
-  }
 }
+mostraPestanya(pestaInicial || "pantalles", false);
 
-document.getElementById("cols").addEventListener("change", (e) => {
-  splitFrac = parseFloat(e.target.value);
-  aplicaCols();
-  desaSecs();
-});
-
-document.getElementById("btnPlegar").addEventListener("click", (e) => {
-  const secs = secsTotes();
-  const algunPlegat = secs.some(s => secPlegats[s.id]);
-  secs.forEach(s => { secPlegats[s.id] = !algunPlegat; });
-  aplicaSecs();
-  desaSecs();
-  e.target.textContent = algunPlegat ? "Plegar-ho tot" : "Desplegar-ho tot";
-});
-
-document.getElementById("btnOrdre").addEventListener("click", () => {
-  secOrdre = secOrdreOriginal.slice();
-  aplicaSecs();
-  desaSecs();
-});
-
-initSecs();
-initSplitter();
-carregaSecs();
-aplicaSecs();
+carregaApps();
 
 poll();
 setInterval(poll, 1500);

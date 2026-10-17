@@ -45,6 +45,15 @@ char gTabs[MacLink::MAX_TABS][28];
 char gTabIcons[MacLink::MAX_TABS][20];
 int  gTabCount = 0;
 bool gTabsChanged = false;
+bool gTabsRebudes = false;   /* el Mac ja n'ha enviat alguna llista (encara que fos buida) */
+
+/* Favorits dels navegadors (per a la pantalla "favs"). Mateix format que les
+ * pestanyes: 'B' amb els favorits de la barra i el seu favicon darrere un '='. */
+char gFavs[MacLink::MAX_FAVS][28];
+char gFavIcons[MacLink::MAX_FAVS][20];
+int  gFavCount = 0;
+bool gFavsChanged = false;
+bool gFavsRebudes = false;   /* el Mac ja n'ha enviat la llista (encara que fos buida) */
 
 /* Avis pendent de mostrar (notificacio del Mac). */
 MacLink::Notice gNotice = {"", "", ""};
@@ -203,9 +212,11 @@ void applyConfig(const char* json, bool persist)
     }
 
     gConfigChanged = true;
-    Serial.printf("[MAC] configuracio: %d pantalles (orientacio %s, tema %u)\n",
+    Serial.printf("[MAC] configuracio: %d pantalles (orientacio %s, tema %u, "
+                  "repos %us)\n",
                   gConfig.pageCount, gConfig.orientation,
-                  static_cast<unsigned>(gConfig.theme));
+                  static_cast<unsigned>(gConfig.theme),
+                  static_cast<unsigned>(gConfig.standbyS));
 }
 void applyDefaultConfig()
 {
@@ -388,6 +399,33 @@ bool processLine(char* line)
             ++gTabCount;
         }
         gTabsChanged = true;
+        gTabsRebudes = true;
+        return true;
+    }
+
+    /* --- Favorits dels navegadors: 'B Titol=favicon|...' ------------------- *
+     * Mateix format que les pestanyes ('T'), pero son les adreces de la barra
+     * de favorits. Fem servir 'B' (bookmarks) perque 'F' ja es la previsio del
+     * temps. Una linia 'B' buida (= cap favorit) tambe es valida: deixa la
+     * llista a zero i la pantalla ho mostra. */
+    if (strncmp(line, "B ", 2) == 0) {
+        gFavCount = 0;
+        char* save = nullptr;
+        for (char* tok = strtok_r(line + 2, "|", &save);
+             tok != nullptr && gFavCount < MacLink::MAX_FAVS;
+             tok = strtok_r(nullptr, "|", &save)) {
+            char* igual = strchr(tok, '=');
+            if (igual != nullptr) {
+                *igual = '\0';
+                strlcpy(gFavIcons[gFavCount], igual + 1, sizeof(gFavIcons[0]));
+            } else {
+                gFavIcons[gFavCount][0] = '\0';
+            }
+            strlcpy(gFavs[gFavCount], tok, sizeof(gFavs[0]));
+            ++gFavCount;
+        }
+        gFavsChanged = true;
+        gFavsRebudes = true;
         return true;
     }
 
@@ -598,6 +636,44 @@ bool takeTabsChanged()
     const bool c = gTabsChanged;
     gTabsChanged = false;
     return c;
+}
+
+bool tabsReceived()
+{
+    return gTabsRebudes;
+}
+
+int favCount()
+{
+    return gFavCount;
+}
+
+const char* favName(int index)
+{
+    if (index < 0 || index >= gFavCount) {
+        return "";
+    }
+    return gFavs[index];
+}
+
+const char* favIcon(int index)
+{
+    if (index < 0 || index >= gFavCount) {
+        return "";
+    }
+    return gFavIcons[index];
+}
+
+bool takeFavsChanged()
+{
+    const bool c = gFavsChanged;
+    gFavsChanged = false;
+    return c;
+}
+
+bool favsReceived()
+{
+    return gFavsRebudes;
 }
 
 }  // namespace MacLink

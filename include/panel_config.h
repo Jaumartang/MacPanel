@@ -100,8 +100,9 @@ static constexpr int BTN_GAP  = 6;     /* separacio entre botons */
 static constexpr int MAX_GAUGES = 4;
 
 /* --- Icones (SD: /icons/<nom>.bin, RGB565 big-endian, quadrades) ---------- */
-static constexpr int ICON_PX     = 64;   /* mida dels .bin (quadrats) */
-static constexpr int ICON_BTN_PX = 40;   /* mida amb que es dibuixen als botons */
+/* 32x32 (2048 bytes): 1:1 sense escalat = sense deformacio. */
+static constexpr int ICON_PX     = 32;   /* mida dels .bin (quadrats) */
+static constexpr int ICON_BTN_PX = 32;   /* mida amb que es dibuixen als botons */
 /* Color de les icones que s'ha de pintar amb el fons (transparent). */
 static constexpr uint16_t ICON_TRANSPARENT = 0xF81F;
 

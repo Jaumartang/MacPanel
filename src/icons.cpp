@@ -15,7 +15,8 @@ namespace {
 
 /* Icona tal com ve de la SD (ICON_PX x ICON_PX, RGB565 big-endian). */
 uint16_t gBuf[ICON_PX * ICON_PX];
-/* Buffer per a l'escalat (mai mes gran que la icona). */
+/* Buffer per a la substitucio del transparent (mateixa mida que la icona).
+ * Ja no cal escalar: tot es 1:1 a 32 px. */
 uint16_t gScaled[ICON_PX * ICON_PX];
 
 char gCached[24] = {0};
@@ -34,10 +35,44 @@ inline uint16_t gira(uint16_t v)
 File     gWriteFile;
 uint32_t gWriteTotal = 0;
 uint32_t gWritten    = 0;
+/* Nom i camins del fitxer que s'esta rebent: escrivim a un temporal i nome s
+ * el posem al seu lloc quan la icona arriba sencera (aixi una pujada que falla
+ * no trenca la icona que ja hi havia). */
+char gWriteName[24] = {0};
+char gWritePath[48] = {0};
+char gTmpPath[48]   = {0};
 
 void iconPath(char* out, size_t n, const char* name)
 {
     snprintf(out, n, "/icons/%s.bin", name);
+}
+
+/* Mida exacta d'una icona: 32x32 px x 2 bytes (RGB565) = 2048. */
+static constexpr uint32_t ICON_BIN_BYTES =
+    static_cast<uint32_t>(ICON_PX * ICON_PX * 2);
+
+/* Nom del fitxer temporal on es rep una icona abans de posar-la al seu lloc. */
+static constexpr const char* ICON_TMP = "_rebut";
+
+/* Nom segur per a la SD: nomes [A-Za-z0-9_.-], sense '/' ni '..'. */
+bool nomSegur(const char* name)
+{
+    if (name == nullptr || name[0] == '\0') {
+        return false;
+    }
+    if (strstr(name, "..") != nullptr || strchr(name, '/') != nullptr) {
+        return false;
+    }
+    for (const char* p = name; *p != '\0'; ++p) {
+        const char c = *p;
+        const bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') || c == '_' || c == '.' ||
+                        c == '-';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /* Carrega /icons/<name>.bin al buffer (amb cau d'una entrada). */
@@ -87,12 +122,25 @@ namespace Icons {
 
 bool exists(const char* name)
 {
-    if (name == nullptr || name[0] == '\0' || !Sd::isMounted()) {
+    if (!nomSegur(name) || !Sd::isMounted()) {
         return false;
     }
     char path[48];
     iconPath(path, sizeof(path), name);
-    return SD.exists(path);
+    if (!SD.exists(path)) {
+        return false;
+    }
+    /* Tambe comprovem la MIDA: si a la SD hi ha un .bin d'una versio antiga
+     * (64x64 = 8192 B), no el donem per bo. Aixi el boto surt amb el text en
+     * lloc de quedar-se amb una icona que no es pot carregar, i el Mac sap que
+     * l'ha de tornar a pujar. */
+    File f = SD.open(path, FILE_READ);
+    if (!f) {
+        return false;
+    }
+    const size_t sz = f.size();
+    f.close();
+    return sz == ICON_BIN_BYTES;
 }
 
 int count()
@@ -140,21 +188,23 @@ bool drawCentered(const char* name, int cx, int cy, int size, uint16_t bg)
     if (!load(name)) {
         return false;
     }
-    if (size > ICON_PX) size = ICON_PX;
-    if (size < 8)       size = 8;
+    /* 1:1, sense escalat: la icona ja es de ICON_PX (32) i 'size' tambe ho es.
+     * Nomes substituim el transparent pel fons: cap deformacio. */
+    if (size != ICON_PX) {
+        size = ICON_PX;
+    }
 
     TFT_eSPI& t = Display::driver();
 
-    /* Passem SEMPRE pel buffer d'escalat: aixi hi podem canviar el color
-     * transparent (magenta) pel fons de destí sense tocar la cau. */
+    /* 1:1 sense escalat: substitueix el transparent (magenta) pel fons sense
+     * tocar la cau. */
     const uint16_t trans = gira(ICON_TRANSPARENT);
     const uint16_t fons  = gira(bg);
     for (int dy = 0; dy < size; ++dy) {
-        const int sy = dy * ICON_PX / size;
-        const uint16_t* row = &gBuf[sy * ICON_PX];
+        const uint16_t* row = &gBuf[dy * ICON_PX];
         uint16_t* out = &gScaled[dy * size];
         for (int dx = 0; dx < size; ++dx) {
-            const uint16_t c = row[dx * ICON_PX / size];
+            const uint16_t c = row[dx];
             out[dx] = (c == trans) ? fons : c;
         }
     }
@@ -166,7 +216,15 @@ bool drawCentered(const char* name, int cx, int cy, int size, uint16_t bg)
 
 bool beginWrite(const char* name, uint32_t totalBytes)
 {
-    if (name == nullptr || name[0] == '\0' || !Sd::isMounted()) {
+    if (!nomSegur(name) || !Sd::isMounted()) {
+        return false;
+    }
+    /* Totes les icones son de 32x32 RGB565: rebutgem qualsevol altra mida
+     * (p. ex. .bin antics de 64x64 = 8192 bytes). */
+    if (totalBytes != ICON_BIN_BYTES) {
+        Serial.printf("[ICO] '%s': mida rebutjada (%lu bytes, calen %lu)\n",
+                      name, static_cast<unsigned long>(totalBytes),
+                      static_cast<unsigned long>(ICON_BIN_BYTES));
         return false;
     }
     if (gWriteFile) {
@@ -177,12 +235,20 @@ bool beginWrite(const char* name, uint32_t totalBytes)
         SD.mkdir("/icons");
     }
 
-    char path[48];
-    iconPath(path, sizeof(path), name);
+    /* Escrivim a un fitxer TEMPORAL i, nomes quan la icona arriba sencera, la
+     * posem al seu lloc. Si la pujada falla a mig cami (l'ESP32 es queda sense
+     * memoria, es perd un tros...), la icona que ja hi havia NO es perd: abans
+     * es trencava el fitxer bo i el boto es quedava sense icona per sempre. */
+    strlcpy(gWriteName, name, sizeof(gWriteName));
+    iconPath(gWritePath, sizeof(gWritePath), name);
+    iconPath(gTmpPath, sizeof(gTmpPath), ICON_TMP);
+    if (SD.exists(gTmpPath)) {             /* per si n'havia quedat un */
+        SD.remove(gTmpPath);
+    }
 
-    gWriteFile = SD.open(path, FILE_WRITE);   /* crea o trunca */
+    gWriteFile = SD.open(gTmpPath, FILE_WRITE);
     if (!gWriteFile) {
-        Serial.printf("[ICO] no s'ha pogut crear %s\n", path);
+        Serial.printf("[ICO] no s'ha pogut crear %s\n", gTmpPath);
         return false;
     }
 
@@ -227,6 +293,19 @@ bool endWrite()
                   static_cast<unsigned long>(gWritten),
                   static_cast<unsigned long>(gWriteTotal),
                   ok ? "OK" : "INCOMPLETA");
+    if (ok && gWritePath[0] != '\0') {
+        /* Ja esta sencera: la posem al seu lloc. */
+        if (SD.exists(gWritePath)) {
+            SD.remove(gWritePath);
+        }
+        if (!SD.rename(gTmpPath, gWritePath)) {
+            Serial.println(F("[ICO] no s'ha pogut reanomenar la icona"));
+            SD.remove(gTmpPath);
+        }
+    } else if (SD.exists(gTmpPath)) {
+        /* Incompleta: la llencem i deixem la que hi havia. */
+        SD.remove(gTmpPath);
+    }
     gWritten    = 0;
     gWriteTotal = 0;
     return ok;
@@ -234,7 +313,7 @@ bool endWrite()
 
 bool remove(const char* name)
 {
-    if (name == nullptr || name[0] == '\0' || !Sd::isMounted()) {
+    if (!nomSegur(name) || !Sd::isMounted()) {
         return false;
     }
     char path[48];

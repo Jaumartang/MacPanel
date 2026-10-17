@@ -43,7 +43,10 @@
 
 /* --- Velocitats SPI ------------------------------------------------------- */
 #define SPI_FREQUENCY        40000000
-#define SPI_READ_FREQUENCY   20000000
+/* La lectura de la pantalla (readRect, que fa servir la comanda 'captura') es
+ * molt mes delicada que l'escriptura: a 20 MHz arribaven pixels amb canals
+ * desviats. A 10 MHz va be. */
+#define SPI_READ_FREQUENCY   10000000
 #define SPI_TOUCH_FREQUENCY   2500000
 
 /* --- Fonts ---------------------------------------------------------------- */

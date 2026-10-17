@@ -22,7 +22,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-from bridge import ACTIONS, Bridge, WIDGETS, list_icons, load_config, save_config
+from bridge import (ACTIONS, Bridge, WIDGETS, apps_instalades, extreu_icona,
+                    list_icons, load_config, save_config)
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8770
@@ -82,9 +83,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(500, "falta panel.html", "text/plain; charset=utf-8")
         elif path == "/api/state":
             self._json(state())
+        elif path == "/api/apps":
+            # Apps instal·lades al Mac amb la seva icona (per poder-les
+            # assignar a botons). Es un endpoint a part perque recorre les
+            # carpetes i llegeix ~150 Info.plist: no el volem a cada /api/state.
+            self._json({"apps": apps_instalades()})
+        elif path == "/api/captura":
+            # Captura de la pantalla de la placa (triga ~40 s: va pel port
+            # serie). Serveix per veure de debò com queda.
+            png = BRIDGE.captura_png()
+            if png:
+                self._send(200, png, "image/png")
+            else:
+                self._json({"ok": False,
+                            "error": "no s'ha pogut capturar la pantalla"}, 500)
         elif path.startswith("/icons/"):
             name = os.path.basename(path)      # basename: evita rutes amb ../
             full = os.path.join(ASSETS_ICONS, name)
+            if not os.path.isfile(full):
+                # Pot ser la icona d'una app instal·lada que encara no s'ha
+                # extret mai (el panell en mostra ~70 de cop): la traiem ara
+                # mateix, que es rapid, i aixi no surt la icona trencada.
+                extreu_icona(os.path.splitext(name)[0])
             if os.path.isfile(full):
                 with open(full, "rb") as fh:
                     self._send(200, fh.read(), "image/png")

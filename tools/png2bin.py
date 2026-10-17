@@ -3,7 +3,10 @@
 png2bin.py - Converteix els PNG de Assets/icons a .bin RGB565 (big-endian) per a
 la SD de l'ESP32.
 
-Cada PNG es converteix a ICON_PX x ICON_PX (64x64) amb fons transparent 0xF81F.
+Cada PNG es converteix a ICON_PX x ICON_PX (32x32, 2048 bytes) amb fons
+transparent 0xF81F. Les vores es resolen amb un llindar d'alfa net (el firmware
+pinta el transparent amb el color del boto) i l'RGB porta un tramat Bayer
+lleuger per evitar bandes.
 El resultat es desa a Assets/icons/bin/<nom>.bin.
 
 Hi ha DOS tipus d'icona i es tracten diferent:
@@ -37,7 +40,7 @@ try:
 except ImportError:
     Image = None      # es comprova a main(): aixi es pot importar sense Pillow
 
-SIZE = 64                 # mida dels .bin (ha de coincidir amb ICON_PX)
+SIZE = 32                  # mida dels .bin (ha de coincidir amb ICON_PX)
 TRANS = 0xF81F            # magenta = color transparent que enten el firmware
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_DIR = os.path.join(ROOT, "Assets", "icons")
@@ -45,7 +48,7 @@ OUT_DIR = os.path.join(SRC_DIR, "bin")
 APPS_FILE = os.path.join(SRC_DIR, "apps.txt")
 
 # Radi de les cantonades de les icones d'app, en proporcio del costat. El macOS
-# fa servir mes o menys aquesta mida.
+# fa servir mes o menys aquesta mida (a 32 px son ~7 px de radi).
 RADI_CANTONADA = 0.225
 
 
@@ -81,7 +84,62 @@ def cantonades_rodones(im, radi=RADI_CANTONADA):
     return out
 
 
+def _es_dibuix_pla(im):
+    """Te poques tonalitats? Llavors es un dibuix/logo pla (i no pas una imatge
+    amb degradats ni un favicon borros, que en tenen moltes)."""
+    return im.convert("RGB").getcolors(maxcolors=64) is not None
+
+
+def escala_neta(im, size):
+    """Redimensiona a size x size amb la MILLOR qualitat possible.
+
+    - Ja hi es: no es toca (1:1).
+    - Dibuix pla que s'amplia (un simbol de 16 px): NEAREST, que replica els
+      pixels exactes i queda nitid, sense interpolacio.
+    - Qualsevol altre cas (favicon borros, foto, o qualsevol reduccio):
+      LANCZOS amb PREMULTIPLICACIO d'alfa.
+
+    Per que la premultiplicacio: els PNG dels simbols tenen els pixels
+    transparents amb RGB=(0,0,0). Si es redueix l'RGBA tal qual, aquest negre es
+    barreja amb el dibuix i les vores surten GRISES en lloc de blanques (aixo
+    era part del que feia que les icones es veiessin malament).
+    """
+    im = im.convert("RGBA")
+    w, h = im.size
+    if w == size and h == size:
+        return im
+    if w <= size and h <= size and _es_dibuix_pla(im):
+        return im.resize((size, size), Image.NEAREST)
+    return _escala_alfa(im, size)
+
+
+def _escala_alfa(im, size):
+    """LANCZOS amb premultiplicacio d'alfa (vores sense halo gris)."""
+    r, g, b, a = im.split()
+    pre = Image.merge("RGBA", (ImageChops.multiply(r, a),
+                               ImageChops.multiply(g, a),
+                               ImageChops.multiply(b, a), a))
+    small = pre.resize((size, size), Image.LANCZOS)
+
+    # Des-premultiplica: RGB = premult / alfa (recupera el color de debo).
+    sp = small.load()
+    for y in range(size):
+        for x in range(size):
+            pr, pg, pb, pa = sp[x, y]
+            if pa == 0:
+                sp[x, y] = (0, 0, 0, 0)
+            elif pa < 255:
+                f = 255.0 / pa
+                sp[x, y] = (min(255, int(pr * f + 0.5)),
+                            min(255, int(pg * f + 0.5)),
+                            min(255, int(pb * f + 0.5)), pa)
+    return small
+
+
 def rgb565(r, g, b):
+    r = 0 if r < 0 else (255 if r > 255 else int(r))
+    g = 0 if g < 0 else (255 if g > 255 else int(g))
+    b = 0 if b < 0 else (255 if b > 255 else int(b))
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
 
@@ -200,11 +258,31 @@ def sprite_from_image(im, nom=None, apps=None):
     return sprite
 
 
+# Llindar d'alfa: per sobre = opac, per sota = transparent (i el firmware hi
+# pinta el color del boto). Es 96 en lloc de 128 perque els simbols son blancs
+# sobre fons fosc: amb un llindar alt, els traços prims (les radiacions del
+# sol, els arcs del wifi) s'aprimen massa i gairebe desapareixen.
+ALFA_LLINDAR = 96
+
+# Tramat ordenat de Bayer 4x4 (0..15). S'aplica NOMES a l'RGB, per amagar les
+# bandes dels degradats (5 bits al vermell/blau, 6 al verd).
+# NO es trama l'alfa: provat, i en un simbol prim a 32 px gairebe tots els
+# pixels son de vora, aixi que el tramat el converteix en una taca de soroll.
+BAYER4 = (0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5)
+
+
 def bin_from_sprite(sprite, size=SIZE):
-    """RGB565 big-endian amb el fons marcat amb el magenta transparent."""
-    # Escalem l'RGBA (l'alfa es queda) i decidim pixel a pixel. Fer-ho aixi
-    # evita l'halo magenta que sortia en compondre sobre magenta i rescalar.
-    small = sprite.resize((size, size), Image.LANCZOS)
+    """RGB565 big-endian amb el fons marcat amb el magenta transparent.
+
+    Qualitat (aixo es el que fa que les icones no es vegin \"cutres\"):
+
+      * Escalat net (escala_neta) amb PREMULTIPLICACIO d'alfa: les vores
+        surten del color de debo, sense halo gris.
+      * ALFA: llindar net (ALFA_LLINDAR). El firmware pinta el transparent amb
+        el color del boto, aixi que les vores queden suau sobre qualsevol fons.
+      * RGB: mig pas de tramat de Bayer abans de RGB565, per amagar les bandes.
+    """
+    small = escala_neta(sprite, size)
     sp = small.load()
 
     out = bytearray(size * size * 2)
@@ -212,7 +290,13 @@ def bin_from_sprite(sprite, size=SIZE):
     for y in range(size):
         for x in range(size):
             r, g, b, a = sp[x, y]
-            v = TRANS if a < 128 else rgb565(r, g, b)
+            if a < ALFA_LLINDAR:
+                v = TRANS
+            else:
+                d = BAYER4[(y & 3) * 4 + (x & 3)]
+                v = rgb565(r + (d >> 1) - 4,
+                           g + (d >> 2) - 2,
+                           b + (d >> 1) - 4)
             out[i] = (v >> 8) & 0xFF          # big-endian
             out[i + 1] = v & 0xFF
             i += 2

@@ -18,6 +18,13 @@
 #include "theme.h"
 #include "touch.h"
 
+/* Les fonts suaus (antialiassades), generades amb tools/fes_fonts.py. Son
+ * taules de bytes a la flash: les incloem aqui, fora de cap namespace. */
+#include "font_b.h"
+#include "font_l.h"
+#include "font_m.h"
+#include "font_s.h"
+
 /* Els colors del tema actual (es canvien des del panell de control). */
 #define COL_BG     Th::bg
 #define COL_BG2    Th::bg2
@@ -32,24 +39,37 @@
 #define COL_BTN    Th::btn
 #define COL_BTN_P  Th::btnP
 
-/* Fonts suaus (FreeSans): les carrega TFT_eSPI amb LOAD_GFXFF (vegeu
- * include/tft_setup.h). S=petita (com la font 2), M=mitjana, B=gran. */
-void setFontS(TFT_eSPI& t) { t.setFreeFont(&FreeSans9pt7b); }
-void setFontM(TFT_eSPI& t) { t.setFreeFont(&FreeSansBold12pt7b); }
-void setFontL(TFT_eSPI& t) { t.setFreeFont(&FreeSansBold18pt7b); }
-void setFontB(TFT_eSPI& t) { t.setFreeFont(&FreeSansBold24pt7b); }
+/* --- Fonts -----------------------------------------------------------------
+ * La pantalla fa servir fonts SUAUS (antialiassades), generades amb
+ * tools/fes_fonts.py a partir de San Francisco (la font del macOS). Son de les
+ * mateixes mides que les FreeSans d'abans (18/24/35/47 px, amb la mateixa
+ * alcada de linia), aixi que cap text es mou de lloc: nome s es veuen molt
+ * mes nets, sense les escales de pixels de les fonts de mapa de bits.
+ *
+ * TFT_eSPI nome s te UNA font suau carregada a la vegada, i carregar-la te un
+ * cost (malloca les mètriques de cada glif), aixi que guardem quina hi ha i
+ * nome s canviem quan de debò cal. */
+int gFontAra = -1;                  /* -1 = cap de carregada encara */
 
-/* Les mateixes, pero triades per numero: 0 = la mes gran. Serveix per anar
- * provant mides fins que un text hi cap. */
+/* n: 0 = la mes gran (B), 1 = L, 2 = M, 3 = S. */
 void setFontN(TFT_eSPI& t, int n)
 {
-    switch (n) {
-        case 0:  setFontB(t); break;
-        case 1:  setFontL(t); break;
-        case 2:  setFontM(t); break;
-        default: setFontS(t); break;
+    if (gFontAra == n) {
+        return;                     /* ja hi es: no toquem res */
     }
+    switch (n) {
+        case 0:  t.loadFont(kFontB); break;
+        case 1:  t.loadFont(kFontL); break;
+        case 2:  t.loadFont(kFontM); break;
+        default: t.loadFont(kFontS); break;
+    }
+    gFontAra = n;
 }
+
+void setFontS(TFT_eSPI& t) { setFontN(t, 3); }
+void setFontM(TFT_eSPI& t) { setFontN(t, 2); }
+void setFontL(TFT_eSPI& t) { setFontN(t, 1); }
+void setFontB(TFT_eSPI& t) { setFontN(t, 0); }
 
 /* Escurça el text amb punts suspensius perque càpiga a 'maxW' pixels. Va
  * caràcter a caràcter per no partir mai un caràcter UTF-8 pel mig. */
@@ -166,8 +186,8 @@ void drawBackground()
     static uint8_t vigX[480];
     for (int x = 0; x < W; ++x) {
         const int dx = x * 2 - W;
-        int v = (dx * dx * 58) / (W * W);
-        vigX[x] = static_cast<uint8_t>((v > 80) ? 80 : v);
+        int v = (dx * dx * 30) / (W * W);
+        vigX[x] = static_cast<uint8_t>((v > 40) ? 40 : v);
     }
 
     /* El fons es puja de cop en blocs de FILES files: pushImage reserva un
@@ -190,9 +210,9 @@ void drawBackground()
             const int baseB = bgB + (((b2B - bgB) * f) >> 8);
 
             const int dyv = yy * 2 - H;
-            int vy = (dyv * dyv * 58) / (H * H);
-            if (vy > 80) {
-                vy = 80;
+            int vy = (dyv * dyv * 30) / (H * H);
+            if (vy > 40) {
+                vy = 40;
             }
 
             /* Les llums que passen per aquesta fila (les altres es salten).
@@ -239,17 +259,14 @@ void drawBackground()
                     b = (b * k2) >> 8;
                 }
 
-                /* Gra: un pèl de soroll, perque la superficie no quedi llisa i
-                 * per acabar d'amagar els esglaons. */
-                const int n = ((x * 73856093) ^ (yy * 19349663)) & 3;
-                r += n - 2;
-                g += n - 2;
-                b += n - 2;
-
-                const uint16_t c = aPantalla(to565(r, g, b, x, yy));
-                out[x] = c;
+                /* El color suau es calcula cada dos pixels (els degradats son
+                 * molt suaus), pero el tramat de color es fa PIXEL A PIXEL:
+                 * es el que reparteix els esglaons de l'RGB565 i fa que el
+                 * fons no es vegi a franges. */
+                const uint16_t c0 = aPantalla(to565(r, g, b, x, yy));
+                out[x] = c0;
                 if (x + 1 < W) {
-                    out[x + 1] = c;
+                    out[x + 1] = aPantalla(to565(r, g, b, x + 1, yy));
                 }
             }
 
@@ -346,8 +363,10 @@ int gPressed = -1;
  * layout() apaga el backlight mentre pinta; si arriben dades seguides
  * (config + stats + pestanyes en arrencar), no el toquem si fa poc que l'hem
  * mogut. */
-constexpr uint32_t BL_DEBOUNCE_MS = 700;
-uint32_t gLastBlMs = 0;
+/* Quan l'usuari toca la pantalla mentre el Mac la te dormida, li donem aquesta
+ * estona de marge abans de tornar-la a apagar: si no, s'encenia i s'apagava
+ * sense parar (i mentrestant hem demanat al Mac que es desperti). */
+constexpr uint32_t GRACIA_TOUCH_MS = 20000;
 
 /* --- Repos (standby) ------------------------------------------------------ */
 bool     gScreenOn    = true;
@@ -518,10 +537,16 @@ void drawHeaderPill(TFT_eSPI& t, bool linkUp)
  * s'escurçava amb punts suspensius ("MacBook Pr...") i no s'arribava a saber
  * mai com es diu l'equip. Ara, si no hi cap, el text va passant.
  *
- * Com es retalla sense sprites (serien memoria que va i ve): pintem la ratlla
- * buida, hi posem el text desplaçat i, a sobre del que ha vessat, tornem a
- * pintar els dos marges sencers. Com que l'hora i la pastilla son a les dues
- * bandes de la zona, el text queda retallat exactament on toca. */
+ * Com es retalla: pintem la ratlla buida, hi posem el text desplaçat i, a sobre
+ * del que ha vessat, tornem a pintar els dos marges sencers (l'hora i la
+ * pastilla son a les dues bandes, aixi el text queda retallat on toca). Despres
+ * es DISSOLEN les columnes de les vores amb un tramat ordenat, perque no quedi
+ * una lletra tallada de cop al costat de l'hora (abans l'hora semblava
+ * "12:00ɔ").
+ *
+ * (Es fa amb tramat i no amb un sprite perque les fonts suaus de TFT_eSPI
+ * tenen les metriques en variables GLOBALS: un sprite no comparteix el
+ * _gfxFont del driver i dins seu no s'hi pintaria res.) */
 char     gMarqText[56] = "";
 int      gMarqX0   = 0;
 int      gMarqX1   = 0;
@@ -534,6 +559,39 @@ constexpr int      MARQ_GAP      = 44;    /* buit entre passades */
 constexpr int      MARQ_STEP     = 2;     /* pixels per pas */
 constexpr uint32_t MARQ_MS       = 50;    /* cada quant es mou */
 constexpr uint32_t MARQ_START_MS = 1500;  /* aturada abans d'arrencar */
+constexpr int      MARQ_FADE     = 16;    /* amplada de la fosa de les vores */
+
+/* Dissol les vores del text cap al fons de la capcalera amb un tramat ordenat
+ * (Bayer 8x8: 64 nivells): a la columna de la vora es tapa gairebe tot i,
+ * endins, cada cop menys. Els dos filets de baix no es toquen. */
+void marqueeFade(TFT_eSPI& t)
+{
+    static const uint8_t bayer[64] = {
+         0, 32,  8, 40,  2, 34, 10, 42,
+        48, 16, 56, 24, 50, 18, 58, 26,
+        12, 44,  4, 36, 14, 46,  6, 38,
+        60, 28, 52, 20, 62, 30, 54, 22,
+         3, 35, 11, 43,  1, 33,  9, 41,
+        51, 19, 59, 27, 49, 17, 57, 25,
+        15, 47,  7, 39, 13, 45,  5, 37,
+        63, 31, 55, 23, 61, 29, 53, 21,
+    };
+    const int H = HEADER_H;
+    for (int d = 0; d < MARQ_FADE; ++d) {
+        const int tap = 63 - (d * 63) / MARQ_FADE;
+        if (tap <= 0) {
+            break;
+        }
+        for (int costat = 0; costat < 2; ++costat) {
+            const int x = costat ? (gMarqX1 - 1 - d) : (gMarqX0 + d);
+            for (int y = 0; y < H - 2; ++y) {
+                if (bayer[(y & 7) * 8 + (x & 7)] < tap) {
+                    t.drawPixel(x, y, COL_CARD);
+                }
+            }
+        }
+    }
+}
 
 void drawMarquee()
 {
@@ -560,6 +618,9 @@ void drawMarquee()
     drawHeaderClock(t);
     drawHeaderChrome(t, gMarqX1, Display::width() - gMarqX1);
     drawHeaderPill(t, gMarqLink);
+
+    /* 4) I dissolguem les vores del text. */
+    marqueeFade(t);
 }
 
 /* Arrenca la marquesina amb un text que no hi cap. */
@@ -614,7 +675,9 @@ void drawHeader(bool linkUp, const MacLink::Stats& s, bool have)
      * millor com a espais. Si no hi cap entre l'hora i la pastilla, en lloc
      * d'escurçar-lo amb punts suspensius el fem passar (marquesina). */
     bool marq = false;
-    const int x0 = horaEnd + 10;
+    const int x0 = horaEnd + 14;    /* una mica mes d'aire: la marquesina te les
+                                     * vores difuminades, pero val mes no
+                                     * arrambar-s'hi */
     const int x1 = pillX - 8;
     if (x1 > x0 + 16) {
         char host[48];
@@ -1042,6 +1105,46 @@ void requestTabs()
     MacLink::sendCommand("refresh:tabs");
 }
 
+/* --- Favorits dels navegadors: botons sintetics amb la barra de favorits --- */
+constexpr int FAVS_MAX = MacLink::MAX_FAVS;
+MacLink::Button gFavs[FAVS_MAX];
+int gFavsCount = 0;
+
+void buildFavs()
+{
+    /* El Mac envia la barra de favorits dels navegadors (amb el favicon de
+     * cada lloc darrere un '='). Com a les pestanyes, es una sola llista. */
+    gFavsCount = MacLink::favCount();
+    if (gFavsCount > FAVS_MAX) gFavsCount = FAVS_MAX;
+    for (int i = 0; i < gFavsCount; ++i) {
+        /* L'id va 0-based: el Mac rep el numero i obre aquella URL. */
+        snprintf(gFavs[i].id, sizeof(gFavs[i].id), "fav:%d", i);
+        strlcpy(gFavs[i].label, MacLink::favName(i), sizeof(gFavs[i].label));
+        gFavs[i].keys[0] = '\0';
+        const char* ic = MacLink::favIcon(i);
+        if (ic[0] != '\0' && Icons::exists(ic)) {
+            strlcpy(gFavs[i].icon, ic, sizeof(gFavs[i].icon));
+        } else {
+            gFavs[i].icon[0] = '\0';
+        }
+    }
+}
+
+bool pageIsFavs()
+{
+    const MacLink::Config& cfg = MacLink::config();
+    if (gPage < 0 || gPage >= cfg.pageCount) {
+        return false;
+    }
+    return strcmp(cfg.pages[gPage].layout, "favs") == 0;
+}
+
+/* Demana al Mac que reenviï els favorits de la pantalla actual ('R favs'). */
+void requestFavs()
+{
+    MacLink::sendCommand("refresh:favs");
+}
+
 const MacLink::Button* pageButton(int i)
 {
     if (pageIsNumpad()) {
@@ -1052,6 +1155,9 @@ const MacLink::Button* pageButton(int i)
     }
     if (pageIsTabs()) {
         return (i >= 0 && i < gTabsCount) ? &gTabs[i] : nullptr;
+    }
+    if (pageIsFavs()) {
+        return (i >= 0 && i < gFavsCount) ? &gFavs[i] : nullptr;
     }
     const MacLink::Config& cfg = MacLink::config();
     if (gPage < 0 || gPage >= cfg.pageCount) {
@@ -1064,11 +1170,12 @@ const MacLink::Button* pageButton(int i)
     return &p.buttons[i];
 }
 
-/* Els botons de llista (launcher d'apps i pestanyes) porten icona gran i el
- * títol en lletra més grossa, perquè es reconeguin d'un cop d'ull. */
+/* Els botons de llista (launcher d'apps, pestanyes i favorits) porten icona gran
+ * i el títol en lletra més grossa, perquè es reconeguin d'un cop d'ull. */
 bool esBotoLlista(const char* id)
 {
-    return strncmp(id, "focus:", 6) == 0 || strncmp(id, "tab:", 4) == 0;
+    return strncmp(id, "focus:", 6) == 0 || strncmp(id, "tab:", 4) == 0
+        || strncmp(id, "fav:", 4) == 0;
 }
 
 void drawButton(int i, bool pressed)
@@ -1096,22 +1203,21 @@ void drawButton(int i, bool pressed)
     t.setTextColor(pressed ? COL_ACCENT
                            : (esOperador ? COL_ACCENT : COL_TEXT), bg);
 
-    /* Amb icona: icona a dalt i text a sota. Sense icona: nomes el text centrat. */
+    /* Amb icona: icona a dalt i text a sota. Sense icona: nomes el text centrat.
+     * Les icones son de 32x32 i es dibuixen 1:1, sense escalat: cap
+     * deformacio. */
     if (b->icon[0] != '\0') {
-        /* Al launcher i a les pestanyes la icona es una mica mes gran: son les
-         * icones de les apps i els favicons, i es reconeixen millor. */
-        const bool esLlista = esBotoLlista(b->id);
-        const int  maxPx = esLlista ? 56 : ICON_BTN_PX;
+        const int isz = ICON_PX;        /* 32: 1:1 */
 
-        int isz = h - 22;
-        if (isz > maxPx) isz = maxPx;
-        if (isz < 12)    isz = 12;
+        /* La placa (el "relleu" de la tecla) s'adapta a l'alçada del boto:
+         * aixi en un boto baix la icona i el text no es toquen mai. */
+        const int area = h - 16;        /* franja que queda per a la icona */
+        int plate = isz + 8;
+        if (plate > area) plate = area;
+        if (plate < isz + 2) plate = isz + 2;
 
-        /* Placa darrere la icona: la fa destacar del boto (queda com una tecla
-         * amb la icona incrustada). */
-        const int plate = isz + 10;
         const int pcx = x + w / 2;
-        const int pcy = y + 4 + isz / 2;
+        const int pcy = y + area / 2;
         t.fillRoundRect(pcx - plate / 2, pcy - plate / 2, plate, plate,
                         plate / 3, COL_BG);
         t.drawRoundRect(pcx - plate / 2, pcy - plate / 2, plate, plate,
@@ -1120,6 +1226,8 @@ void drawButton(int i, bool pressed)
         if (Icons::drawCentered(b->icon, pcx, pcy, isz, COL_BG)) {
             char txt[24];
             fitText(t, b->label, txt, sizeof(txt), w - 8);
+            setFontS(t);
+            t.setTextColor(pressed ? COL_ACCENT : COL_TEXT, bg);
             t.setTextDatum(BC_DATUM);
             t.drawString(txt, x + w / 2, y + h - 4);
             return;
@@ -2361,6 +2469,15 @@ void drawIdleScreen()
 namespace Ui {
 
 /* Definida mes avall (la crida layout()). */
+/* Avancades (definides a baix): el baner viu SOTA la capcalera i cal repintar-lo
+ * quan el refresh pinta a sota; el toc (pas 0) tambe el necessita. */
+extern bool gBannerOn;
+void drawBanner();
+void dismissBanner();
+int  bannerTop();
+int  bannerHeight();
+bool touchEaten();
+
 void drawNavBar();
 
 void refresh(const MacLink::Stats& s, bool linkUp)
@@ -2376,6 +2493,14 @@ void refresh(const MacLink::Stats& s, bool linkUp)
     /* Amb el menu obert no repintem res: el menu tapa tota la pantalla i, si
      * redibuixessim les files de gadgets, hi apareixerien a sobre. */
     if (gMenuOpen) {
+        return;
+    }
+
+    /* Amb un avis a la pantalla, tampoc: el baner es una capa a SOBRE del
+     * contingut (gadgets, botons) i qualsevol repintat el menjaria a trossos
+     * (abans passava: el baner s'anava esborrant sol mentre canviaven els
+     * valors). Dura uns segons i, en treure'l, es repinta tota la pantalla. */
+    if (gBannerOn) {
         return;
     }
 
@@ -2422,6 +2547,9 @@ void refresh(const MacLink::Stats& s, bool linkUp)
         strcmp(gLastHost, have ? s.host : "") != 0 ||
         gLastLink != (linkUp ? 1 : 0)) {
         drawHeader(linkUp, s, have);
+        if (gBannerOn) {
+            drawBanner();       /* el baner viu a sota: no l'escombra */
+        }
         strlcpy(gLastTime, have ? s.timeStr : "", sizeof(gLastTime));
         strlcpy(gLastHost, have ? s.host : "", sizeof(gLastHost));
         gLastLink = linkUp ? 1 : 0;
@@ -2469,23 +2597,16 @@ void layout()
     const MacLink::Config& cfg = MacLink::config();
     const uint32_t ara = millis();
 
-    /* Debounce del backlight: la pantalla d'arrencada rep config + stats +
-     * pestanyes seguides, i cada una disparava un layout() (= apagar i
-     * encendre el backlight = parpelleig). Si fa menys de 700 ms de l'ultim
-     * canvi de backlight, el deixem encés i seguim pintant: no es veu res a
-     * mig fer perque igualment repintem tot damunt.
-     *
-     * Nomes sha d'apagar de veritat quan la pantalla estava en repòs
-     * (backlight apagat): aleshores cal mantenir-la fosca fins al final. */
-    const uint8_t bl = Display::backlight();
-    const bool caliaFosc = (bl == 0);
-    bool femDebounce = false;
-    if (!caliaFosc && ara - gLastBlMs < BL_DEBOUNCE_MS) {
-        femDebounce = true;
-    } else {
-        Display::setBacklight(0);
-        gLastBlMs = ara;
-    }
+    /* NOTA (per que ja no s'apaga la llum mentre es pinta):
+     * abans, si feia mes de 700 ms que no es pintava, s'apagava la
+     * retroil-luminacio mentre durava el repintat i es tornava a encendre al
+     * final. Aixo amagava el "mig pintat", pero es veia com un FLAIX NEGRE
+     * cada cop que canviava alguna cosa (canvi de pantalla, dades que arriben,
+     * canvi de tema...), i donava la impressio que la pantalla s'encenia i
+     * s'apagava tota l'estona. Ara es pinta amb la llum encesa: el repintat es
+     * veu, pero es rapid (~150 ms) i no fa aquest efecte d'apagar-se.
+     * Nomes es queda fosca si ja ho estava (repòs): aleshores no la toquem. */
+    const bool caliaFosc = (Display::backlight() == 0);
 
     /* Orientacio (vertical / horitzontal) — display I tactil. */
     const uint8_t rot = (cfg.orientation[0] == 'h') ? 1 : 0;
@@ -2505,6 +2626,10 @@ void layout()
      * tema) i no hi ha res mes a fer. */
     if (gMenuOpen) {
         drawMenu();
+        /* Cap boto de la pagina es pot pitjar (el menu tapa la pantalla): si
+         * deixessim la geometria de l'ultima pantalla, un toc cauria sobre un
+         * boto invisible. */
+        gBtnCount = 0;
         return;
     }
 
@@ -2514,6 +2639,8 @@ void layout()
     if (gIdleMode || gNoLink) {
         gIdleSig[0] = '\0';
         drawIdleScreen();
+        /* Mateix rao que amb el menu: el rellotge no te botons de pagina. */
+        gBtnCount = 0;
         return;
     }
 
@@ -2539,9 +2666,11 @@ void layout()
     const bool isLauncher = pg && strcmp(pg->layout, "launcher") == 0;
     const bool isGraph    = pg && strcmp(pg->layout, "graph")  == 0;
     const bool isTabs     = pg && strcmp(pg->layout, "tabs")   == 0;
+    const bool isFavs     = pg && strcmp(pg->layout, "favs")   == 0;
 
-    /* Botons (el teclat numeric, el launcher i les pestanyes en generen de propis). */
-    gBtnCols = isNumpad ? 4 : ((isLauncher || isTabs) ? 2 : BTN_COLS);
+    /* Botons (el teclat numeric, el launcher, les pestanyes i els favorits en
+     * generen de propis). */
+    gBtnCols = isNumpad ? 4 : ((isLauncher || isTabs || isFavs) ? 2 : BTN_COLS);
     if (isNumpad) {
         buildNumpad();
         gBtnCount = NUMPAD_COUNT;
@@ -2551,6 +2680,9 @@ void layout()
     } else if (isTabs) {
         buildTabs();
         gBtnCount = gTabsCount;
+    } else if (isFavs) {
+        buildFavs();
+        gBtnCount = gFavsCount;
     } else if (pg) {
         gBtnCount = pg->buttonCount;
     } else {
@@ -2637,12 +2769,16 @@ void layout()
     invalidate();
     refresh(MacLink::stats(), MacLink::linkUp());
 
-    /* Tornem la llum nomes si l'haviem apagat nosaltres: amb debounce (ja
-     * estava encesa) no la toquem, i si estava en repòs la deixem fosca
-     * perque la desperti el toc (touchActivity / setScreenOn ja l'encenen). */
-    if (!femDebounce && !caliaFosc) {
-        Display::setBacklight(bl);
-        gLastBlMs = millis();
+    /* La llum no es toca: si la pantalla era en repòs ja esta apagada i no
+     * l'hem d'encendre nosaltres (ho fa el toc). */
+    (void)caliaFosc;
+
+    /* Si hi ha un avis a la pantalla, el tornem a pintar a SOBRE: s'acaba de
+     * repintar tota la pantalla i el baner hi hauria quedat a sota (abans,
+     * qualsevol canvi de pantalla o de tema el feia desaparèixer mentre la
+     * placa encara creia que hi era). */
+    if (gBannerOn) {
+        drawBanner();
     }
 }
 
@@ -2668,7 +2804,13 @@ bool pageNeedsData()
     if (pageIsLauncher() && MacLink::appCount() == 0) {
         return true;
     }
-    if (pageIsTabs() && MacLink::tabCount() == 0) {
+    /* Per a pestanyes i favorits no mirem si la llista es buida, sino si el Mac
+     * ja ens n'ha enviat alguna: qui no tingui cap favorit ha de veure la
+     * pagina buida, no la pantalla de "carregant" per sempre. */
+    if (pageIsTabs() && !MacLink::tabsReceived()) {
+        return true;
+    }
+    if (pageIsFavs() && !MacLink::favsReceived()) {
         return true;
     }
     return false;
@@ -2694,10 +2836,12 @@ void setPage(int index)
     }
     gPage = index;
     rebuild();
-    /* En entrar a una pantalla de pestanyes, demem al Mac que ens les envií
-     * de seguida (si no, hauriem d'esperar el cicle de 3 s del pont). */
+    /* En entrar a una pantalla de pestanyes (o de favorits), demem al Mac que
+     * ens ho enviï de seguida (si no, hauriem d'esperar el cicle del pont). */
     if (pageIsTabs()) {
         requestTabs();
+    } else if (pageIsFavs()) {
+        requestFavs();
     }
 }
 
@@ -2756,6 +2900,46 @@ int hitTest(int16_t x, int16_t y)
 const MacLink::Button* buttonAt(int index)
 {
     return pageButton(index);
+}
+
+/* Diagnostica: geometria dels botons de la pantalla actual, per consola.
+ * Serveix per comprovar on cau un toc (i, per tant, on cau el baner d'avisos
+ * a sobre: si el baner tapa el primer boto, es veu aqui de seguida). */
+void printButtons()
+{
+    const int W = Display::width();
+    const int H = Display::height();
+    const MacLink::Config& cfg = MacLink::config();
+    const char* lay = (gPage >= 0 && gPage < cfg.pageCount)
+                      ? cfg.pages[gPage].layout : "(fora de rang)";
+    Serial.printf("[BTN] pagina=%d/%d disposicio='%s' (%d %d %d %d %d)\n",
+                  gPage, cfg.pageCount, lay,
+                  lay[0], lay[1], lay[2], lay[3], lay[4]);
+    Serial.printf("[BTN] menu=%d repos=%d senseEnllac=%d baner=%d\n",
+                  gMenuOpen ? 1 : 0, gIdleMode ? 1 : 0, gNoLink ? 1 : 0,
+                  gBannerOn ? 1 : 0);
+    Serial.printf("[BTN] pageIsFavs=%d pageIsTabs=%d favCount=%d "
+                  "favsRebudes=%d tabsCount=%d\n",
+                  pageIsFavs() ? 1 : 0, pageIsTabs() ? 1 : 0,
+                  MacLink::favCount(), MacLink::favsReceived() ? 1 : 0,
+                  MacLink::tabCount());
+    Serial.printf("[BTN] mida=%dx%d n=%d files=%d cols=%d top=%d cell=%dx%d\n",
+                  W, H, gBtnCount, gBtnRows, gBtnCols,
+                  gBtnTop, gBtnCellW, gBtnCellH);
+    if (gBannerOn) {
+        Serial.printf("[BTN] avis a la pantalla: y=%d..%d\n",
+                      bannerTop(), bannerTop() + bannerHeight() - 1);
+    }
+    Serial.printf("[BTN] toc menjat pel baner: %s\n",
+                  touchEaten() ? "SI (mal senyal!)" : "no");
+    for (int i = 0; i < gBtnCount; ++i) {
+        int bx = 0, by = 0, bw = 0, bh = 0;
+        buttonRect(i, bx, by, bw, bh);
+        const MacLink::Button* b = pageButton(i);
+        Serial.printf("[BTN] %2d  x=%3d..%3d  y=%3d..%3d  '%s'\n",
+                      i, bx, bx + bw - 1, by, by + bh - 1,
+                      b ? b->label : "?");
+    }
 }
 
 /* --- Barra de navegacio de baix ------------------------------------------- */
@@ -2870,6 +3054,12 @@ void setMenuOpen(bool open)
 /* Estat del boto que hi ha sota el dit ara mateix. */
 int  gPressedBtn = -1;
 bool gWasPressed = false;
+/* Un toc que s'ha menjat el baner d'avisos: s'ignora del tot fins que el dit
+ * s'aixequi. Cal recordar-ho perque el bucle de tocs crida aquesta funcio
+ * MOLTES vegades amb el dit a sobre: sense aquesta memoria, la segona volta el
+ * baner ja estaria tancat i es premiaria el boto que hi hagues a sota (que es
+ * justament on cau el baner). */
+bool gTouchEaten = false;
 
 bool touch(bool pressed, int16_t x, int16_t y)
 {
@@ -2878,6 +3068,22 @@ bool touch(bool pressed, int16_t x, int16_t y)
         return false;
     }
     gTouchDown = pressed;
+
+    /* --- 0) Baner de notificacio: el primer toc (premuda) el treu i el toc
+     * SENCER queda menjat: ni obre el menu, ni canvia de pantalla, ni prem cap
+     * boto. El "sencer" vol dir fins que el dit s'aixequi (gTouchEaten). */
+    if (gBannerOn || gTouchEaten) {
+        if (!pressed) {
+            gTouchEaten = false;
+            return true;
+        }
+        if (gBannerOn) {
+            dismissBanner();
+        }
+        gTouchEaten = true;
+        cancelPress();
+        return true;
+    }
 
     /* --- 1) Menu obert: se'l menja tot ----------------------------------- */
     if (gMenuOpen) {
@@ -3072,30 +3278,46 @@ void setPressed(int index, bool down)
 }
 
 /* --- Baner de notificacio (les envia el Mac) ------------------------------ */
-/* Es dibuixa com el baner del macOS: una targeta arrodonida a dalt de tot amb
- * el nom de l'aplicacio, el titol en negreta i una linia del cos. */
+/* Es dibuixa com el baner del macOS: una targeta arrodonida a SOTA de la
+ * capcalera (no la tapa), amb el nom de l'aplicacio, el titol en negreta i una
+ * linia del cos. El primer toc a qualsevol lloc el treu. */
 MacLink::Notice gBanner = {"", "", ""};
 uint32_t gBannerUntil = 0;
 bool     gBannerOn = false;
+/* Alcada del baner que hi ha PINTAT a la pantalla ara mateix (pot no coincidir
+ * amb la del gBanner actual mentre s'esta canviant). */
+int      gBannerDrawnH = 0;
+
+int bannerHeight()
+{
+    return (gBanner.body[0] != '\0') ? 92 : 62;
+}
+
+int bannerTop()
+{
+    return HEADER_H + 8;                       /* sota la capcalera */
+}
 
 void drawBanner()
 {
     TFT_eSPI& t = Display::driver();
     const int W = Display::width();
     const int m = 8;                                   /* marge exterior */
+    const int top = bannerTop();
     const int hasBody = (gBanner.body[0] != '\0');
-    const int h = hasBody ? 92 : 62;
+    const int h = bannerHeight();
     const int x = m + 16;
     const int maxW = W - 2 * m - 26;
+    gBannerDrawnH = h;                                 /* per saber que hi ha */
 
-    /* Sombra + targeta. */
-    t.fillRoundRect(m + 2, m + 3, W - 2 * m, h, 12,
+    /* Sombra + targeta (sota la capcalera, sense tapar-la). */
+    t.fillRoundRect(m + 2, top + 3, W - 2 * m, h, 12,
                     t.alphaBlend(70, TFT_BLACK, COL_BG));
-    t.fillRoundRect(m, m, W - 2 * m, h, 12, COL_CARD);
-    t.drawRoundRect(m, m, W - 2 * m, h, 12, COL_EDGE);
+    t.fillRoundRect(m, top, W - 2 * m, h, 12, COL_CARD);
+    t.drawRoundRect(m, top, W - 2 * m, h, 12, COL_EDGE);
 
     /* Banda d'accent a l'esquerra, com el color de l'app al macOS. */
-    t.fillRoundRect(m, m, 5, h, 3, COL_ACCENT);
+    t.fillRoundRect(m, top, 5, h, 3, COL_ACCENT);
 
     char buf[96];
     t.setTextDatum(TL_DATUM);
@@ -3105,31 +3327,51 @@ void drawBanner()
         setFontS(t);
         t.setTextColor(COL_ACCENT, COL_CARD);
         fitText(t, gBanner.app, buf, sizeof(buf), maxW);
-        t.drawString(buf, x, m + 9);
+        t.drawString(buf, x, top + 9);
     }
 
     /* Titol en negreta. */
     setFontM(t);
     t.setTextColor(COL_TEXT, COL_CARD);
     fitText(t, gBanner.title, buf, sizeof(buf), maxW);
-    t.drawString(buf, x, m + (gBanner.app[0] != '\0' ? 30 : 14));
+    t.drawString(buf, x, top + (gBanner.app[0] != '\0' ? 30 : 14));
 
     /* Cos (una linia). */
     if (hasBody) {
         setFontS(t);
         t.setTextColor(COL_DIM, COL_CARD);
         fitText(t, gBanner.body, buf, sizeof(buf), maxW);
-        t.drawString(buf, x, m + 58);
+        t.drawString(buf, x, top + 58);
     }
+}
+
+/* Torna a pintar el que hi havia sota el baner.
+ *
+ * El baner viu SOTA la capcalera, pero aixo vol dir que tapa CONTINGUT de debò
+ * (les files de gadgets i, a les pantalles de botons, la primera fila de
+ * botons). Repintar nomes la capcalera no serveix: cal refer la pantalla. */
+void eraseBanner()
+{
+    gIdleSig[0] = '\0';        /* si estem en repòs, que es torni a pintar */
+    layout();
 }
 
 void showBanner(const MacLink::Notice& n)
 {
+    const bool jaHiEra = gBannerOn;
+    const int  hVell   = gBannerDrawnH;
     gBanner = n;
     gBannerUntil = millis() + 8000;
     gBannerOn = true;
-    gMarqOn = false;    /* el baner tapa la capcalera: prou marquesina */
-    drawBanner();
+
+    if (jaHiEra && bannerHeight() < hVell) {
+        /* El nou avís es MES BAIX que el que hi ha a la pantalla: si el
+         * pintéssim a sobre, en sobraria un tros del vell. Refem la pantalla
+         * (layout() ja repinta el baner nou al final). */
+        layout();
+    } else {
+        drawBanner();
+    }
     Serial.printf("[UI] avis de '%s': %s\n", gBanner.app, gBanner.title);
 }
 
@@ -3145,17 +3387,26 @@ void showBanner(const char* text)
 
 void updateBanner()
 {
-    if (gBannerOn && millis() > gBannerUntil) {
+    if (gBannerOn && static_cast<int32_t>(millis() - gBannerUntil) >= 0) {
+        /* S'ha acabat el temps: l'amaguem i restaurem el que hi havia a sota
+         * (nomes la franja del baner, no tota la pantalla). */
         gBannerOn = false;
-        invalidate();
-        refresh(MacLink::stats(), MacLink::linkUp());
+        gBannerUntil = 0;
+        gBannerDrawnH = 0;
+        eraseBanner();
     }
 }
 
-/* El baner tapa part de la pantalla: el primer toc nomes el treu. */
+/* El baner viu sota la capcalera: el primer toc a qualsevol lloc el treu. */
 bool bannerOn()
 {
     return gBannerOn;
+}
+
+/* El toc que s'esta processant l'ha menjat el baner? (nomes per a les proves) */
+bool touchEaten()
+{
+    return gTouchEaten;
 }
 
 void dismissBanner()
@@ -3165,8 +3416,8 @@ void dismissBanner()
     }
     gBannerOn = false;
     gBannerUntil = 0;
-    invalidate();
-    refresh(MacLink::stats(), MacLink::linkUp());
+    gBannerDrawnH = 0;
+    eraseBanner();
 }
 
 void onAppsChanged()
@@ -3179,6 +3430,13 @@ void onAppsChanged()
 void onTabsChanged()
 {
     if (pageIsTabs()) {
+        rebuild();
+    }
+}
+
+void onFavsChanged()
+{
+    if (pageIsFavs()) {
         rebuild();
     }
 }
@@ -3243,11 +3501,30 @@ uint32_t standbyMs()
     return gStandbyMs;
 }
 
+/* Per que la pantalla s'apaga (o no) quan no la toquem: ho ensenya la comanda
+ * 'info'. Sense aixo, aquestes regles son molt dificils de seguir. */
+void printStandbyState()
+{
+    Serial.printf("[UI]  pantalla=%s mac=%s repos=%lus idle=%lus "
+                  "rellotge=%d nolink=%d\n",
+                  gScreenOn ? "encesa" : "apagada",
+                  gMacAwake ? "despert" : "dormit",
+                  static_cast<unsigned long>(gStandbyMs / 1000),
+                  static_cast<unsigned long>((millis() - gLastTouchMs) / 1000),
+                  gIdleMode ? 1 : 0, gNoLink ? 1 : 0);
+}
+
 void touchActivity()
 {
     gLastTouchMs = millis();
     if (!gScreenOn) {
         setScreenOn(true);
+        /* Si el Mac te la pantalla dormida, li demanem que es desperti: si no,
+         * la nostra tornaria a apagar-se al cap d'un moment i semblaria que
+         * va espatllada (l'usuari acaba de tocar la pantalla: vol veure-hi). */
+        if (!gMacAwake) {
+            MacLink::sendCommand("wake");
+        }
     }
 }
 
@@ -3275,8 +3552,12 @@ void updateStandby()
     }
     const uint32_t idle = millis() - gLastTouchMs;
 
-    /* El Mac te la pantalla dormida -> nosaltres tambe. */
-    if (!gMacAwake && idle > 3000) {
+    /* El Mac te la pantalla dormida -> nosaltres tambe... pero NOMES si
+     * l'usuari ha demanat un repos per inactivitat. Amb "mai" (standby 0) mana
+     * l'usuari i la pantalla no s'apaga tota sola: es el que fa que, amb el Mac
+     * en repòs, no s'apagues i s'encengues cada cop que la tocaves (abans
+     * s'apagava 3 s despres del toc i semblava espatllada). */
+    if (!gMacAwake && gStandbyMs > 0 && idle > GRACIA_TOUCH_MS) {
         setScreenOn(false);
         return;
     }

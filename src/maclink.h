@@ -145,6 +145,33 @@ const char* tabIcon(int index);
 /* true un sol cop despres que el Mac hagi actualitzat la llista de pestanyes. */
 bool takeTabsChanged();
 
+/* true si el Mac ja ens ha enviat alguna llista de pestanyes (encara que fos
+ * buida). Serveix per no ensenyar la pantalla de "carregant" per sempre quan
+ * el navegador no te cap pestanya oberta. */
+bool tabsReceived();
+
+
+/* --- Favorits dels navegadors (els envia el Mac amb 'F nom=icona|...') -----
+ * Es la barra de favorits dels navegadors (Safari, Chrome, Edge, Brave,
+ * Firefox...): el Mac la llegeix dels fitxers dels navegadors i l'envia amb el
+ * favicon de cada lloc. La pantalla de tipus "favs" els mostra com a botons,
+ * igual que les pestanyes. En tocar-ne un, la placa envia 'C fav:N' (N,
+ * 0-based) i el Mac obre aquella URL al navegador de sempre. */
+static constexpr int MAX_FAVS = 15;         /* favorits visibles */
+
+int         favCount();
+const char* favName(int index);             /* index 0-based */
+/* Nom de la icona (favicon) del favorit 'index' ("" si no en te). */
+const char* favIcon(int index);
+
+/* true un sol cop despres que el Mac hagi actualitzat la llista de favorits. */
+bool takeFavsChanged();
+
+/* true si el Mac ja ens ha enviat la barra de favorits (encara que fos buida):
+ * sense aixo, qui no tingui cap favorit es quedaria amb la pantalla de
+ * "carregant" per sempre. */
+bool favsReceived();
+
 
 /* --- Previsio del temps (3 dies) ------------------------------------------ */
 struct ForecastDay {

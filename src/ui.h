@@ -83,6 +83,10 @@ void invalidate();
 void setScreenOn(bool on);
 bool screenOn();
 
+/* Estat intern del repos, per diagnosticar (comanda 'info'): per que la
+ * pantalla s'apaga o no s'apaga. */
+void printStandbyState();
+
 /* El Mac ha dit que esta despert/dormit (dsp=1/0). */
 void setMacAwake(bool awake);
 
@@ -131,5 +135,16 @@ void onAppsChanged();
 /* El Mac ha actualitzat les pestanyes del navegador: repinta si som a una
  * pantalla de tipus "tabs". */
 void onTabsChanged();
+
+/* El Mac ha actualitzat la barra de favorits: repinta si som a una pantalla de
+ * tipus "favs". */
+void onFavsChanged();
+
+/* El toc que s'esta processant l'ha menjat el baner d'avisos? (per a les proves) */
+bool touchEaten();
+
+/* Escriu per consola la geometria dels botons de la pantalla actual (diagnostic:
+ * serveix per saber on cau un toc i si el baner d'avisos tapa algun boto). */
+void printButtons();
 
 }  // namespace Ui
