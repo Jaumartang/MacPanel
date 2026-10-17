@@ -221,19 +221,20 @@ se n'ha perdut cap.
 
 ## 9. Següent tasca recomanada (fase F)
 
-1. **Arrossegar dins del simulador**: moure un element amb el ratolí i que la
-   posició quedi fixada allà on el deixes (el firmware ja ho sap fer; falta la
-   interacció a l'editor).
-2. **Graella manual**: el model ja guarda `grid.mode`/`cols`; falta que l'editor
+1. **Graella manual**: el model ja guarda `grid.mode`/`cols`; falta que l'editor
    el faci servir per calcular el repartiment (ara sempre és automàtic).
-3. **Empaquetat**: un `.app`/instal·lador per no haver de passar pel terminal, i
+2. **Empaquetat**: un `.app`/instal·lador per no haver de passar pel terminal, i
    l'actualització de firmware des del panell (amb validació del dispositiu
    abans de flashejar).
-4. **Llicències i versió de prova**: el model ja té versió de format; falta la
+3. **Llicències i versió de prova**: el model ja té versió de format; falta la
    part comercial.
-5. **Multi-plataforma**: separar el que és específic del Mac (AppleScript,
+4. **Multi-plataforma**: separar el que és específic del Mac (AppleScript,
    PyObjC, `pmset`) darrere d'una interfície, per poder-hi afegir Windows i
    Linux sense tocar la interfície ni el protocol.
+5. **Passada visual**: l'editor s'ha provat pel que fa a sintaxi, dades,
+   endpoints i comportament de la placa, però **no s'ha pogut clicar en un
+   navegador real** des d'aquí. Cal una revisió visual (clicar, arrossegar,
+   veure el simulador) abans de donar-lo per acabat.
 
    i s'avisa; rebutjar deixaria el panell sense poder desar res.
 4. **La geometria és compartida.** Les constants del simulador (`F` a
