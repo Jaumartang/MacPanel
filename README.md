@@ -303,22 +303,48 @@ python3 mac/panel_server.py --no-browser                      # no obrir el nave
 
 ## El panell de control
 
-El panell s'obre a `http://127.0.0.1:8770` i està organitzat en **cinc pestanyes**
-(abans era una sola pàgina amb 11 apartats i quedava llarg i feixuc). Cada
-pestanya té la seva adreça (`#apps`, `#avisos`...), així que es pot enllaçar o
-guardar als marcadors, i queda desada per a la propera vegada.
+El panell s'obre a `http://127.0.0.1:8770`. Té un **banner** a dalt (identitat,
+estat de connexió, controls del port i un **menú** per saltar a qualsevol secció
+o importar/exportar la configuració) i **set pestanyes**:
 
 | Pestanya | Què hi ha |
 |---|---|
-| **Pantalles** | l'editor: pantalles, gadgets, botons i la **previsualització** (enganxada a la dreta mentre edites) |
-| **Apps i icones** | les **apps instal·lades al Mac** amb la seva icona de debò, i pujar icones |
-| **Avisos** | avisos a la pantalla i notificacions del Mac |
-| **Ajustos** | enllaç (cable/WiFi), favorits dels navegadors i ajustos de la placa |
-| **Estat** | l'estat del Mac en viu i quina aplicació estàs fent servir |
+| **Pantalla** | l'**editor visual**: el simulador de la pantalla real, les pantalles i els gadgets |
+| **Aplicacions** | les **apps instal·lades al Mac** amb la seva icona de debò, i quina estàs fent servir |
+| **Favorits** | els favorits dels navegadors (quants se n'hi posen i si es miren les carpetes) |
+| **Shortcuts** | els botons de la pantalla: ordres, tecles i icona de cadascun |
+| **Utilitats** | avisos a la pantalla de la placa i notificacions del Mac |
+| **Dispositiu** | l'estat de la placa en viu i les icones que hi ha a la targeta SD |
+| **Configuració** | enllaç (cable/WiFi), tema, repòs, brillantor i navegació |
+
+Cada pestanya té la seva adreça (`#pantalla`, `#shortcuts`...), així que es pot
+enllaçar o guardar als marcadors, i queda desada per a la propera vegada.
+
+### L'editor visual (pestanya Pantalla)
+
+És el centre de l'aplicació. A l'esquerra hi ha el **simulador** de la pantalla
+de debò (mateixes mides, orientació i **regles de repartiment** que el firmware)
+i a la dreta la **biblioteca** (què hi pots posar) i les **propietats** (del que
+tens seleccionat).
+
+- **Clicar** un element del simulador el selecciona i n'obre les propietats.
+- **Arrossegar** un botó sobre un altre els canvia d'ordre; arrossegar una icona
+  sobre un botó li canvia la icona.
+- **Zoom** (100/75/50 %) i **graella d'alineació** opcional.
+- La configuració es valida en desar: si alguna cosa no quadra, s'avisa i es
+  desa la versió corregida (no es perd res).
+
+### El model de dades
+
+`mac/panel_model.py` és l'únic lloc on es decideix què és una configuració
+vàlida: el catàleg (gadgets, disposicions, accions), els valors per defecte, els
+límits del dispositiu, la **migració de format** i la **exportació portable**
+(sense el port ni res d'aquest ordinador). El panell demana el catàleg a
+`GET /api/model`, així que les regles no estan duplicades al navegador.
 
 ### Els botons surten de les teves apps
 
-La manera fàcil de fer botons: **pestanya "Apps i icones"** → surten totes les
+La manera fàcil de fer botons: **pestanya "Aplicacions"** → surten totes les
 aplicacions instal·lades al Mac (les de debò: els ajudants de fons, que tenen
 `LSUIElement`, no hi surten) amb **la seva icona real**, treta de l'`.icns` o de
 l'`Assets.car` de cada app.

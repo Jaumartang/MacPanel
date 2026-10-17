@@ -141,8 +141,8 @@ duplica regles: les demana a `GET /api/model`.
 | **A** | Auditoria i pla (aquest document) | ✅ feta |
 | **B** | Model de dades + validació + migracions + portabilitat | ✅ feta |
 | **C** | Editor visual: simulador fidel + biblioteca + propietats | ✅ 1a iteració |
-| **D** | Banner, navegació per pestanyes i identitat visual | ⏳ següent |
-| **E** | Graella automàtica, posicions fixes, apps i favorits a l'editor | ⏳ |
+| **D** | Banner, navegació per pestanyes i identitat visual | ✅ feta |
+| **E** | Graella automàtica, posicions fixes, apps i favorits a l'editor | ⏳ següent |
 | **F** | Empaquetat, llicències, actualització de firmware, multi-plataforma | ⏳ |
 
 ---
@@ -193,25 +193,35 @@ afegir gadgets i botons, **propietats** de l'element seleccionat i
 **arrossegar per reordenar**.
 
 **Proves:** `tools/test_model.py` (40 comprovacions: migració, límits,
-portabilitat, disc) — **tot OK**.
+portabilitat, disc) — **tot OK**; `tools/test_panell.py` (totes les seccions són
+en una pestanya i el JavaScript passa el parser) — **tot OK**.
+
+**Fase D (banner i navegació):** el banner ara té identitat pròpia (marca +
+nom), l'estat de connexió en una pastilla, els controls del port i un **menú**
+que salta a qualsevol de les **set seccions**, exporta/importa la configuració i
+obre l'**ajuda** (amb la informació real del dispositiu: port, Mac, hora, CPU,
+RAM, versió del model, pantalles i icones). Les 13 seccions existents s'han
+repartit entre les set pestanyes noves; `tools/test_panell.py` comprova que no
+se n'ha perdut cap.
 
 ---
 
-## 9. Següent tasca recomanada (fase D)
+## 9. Següent tasca recomanada (fase E)
 
-1. **Banner i pestanyes**: agrupar les 15 seccions en les 7 pestanyes objectiu
-   (Pantalla, Aplicacions, Favorits, Shortcuts, Utilitats, Dispositiu i
-   firmware, Configuració) amb un banner compacte (identitat, estat de connexió,
-   configuració, navegació ràpida, ajuda). Les pestanyes sense contingut han de
-   dir-ho clarament, no inventar-se funcions.
-2. **Posicions explícites** (fase E): aprofitar el camp `pos` que el model ja
-   valida per poder fixar un element on l'usuari el deixi anar, i que el
-   firmware ho respecti (requereix canviar `layout()` amb compatibilitat).
-3. **Exportar/importar des de la interfície** (els endpoints ja hi són).
-4. **Neteja del repo**: treure `panel.log`, `mostra_*.png` i `preview_*.png`
+1. **Posicions explícites**: aprofitar el camp `pos` que el model ja valida per
+   poder fixar un element on l'usuari el deixi anar, i que el firmware ho
+   respecti (requereix canviar `layout()` amb compatibilitat: si `pos` no hi és,
+   el repartiment automatic de sempre).
+2. **Arrossegar dins del simulador**: moure un element amb el ratoli (ara
+   només es pot reordenar) i veure'n la posicio mentre es mou.
+3. **Apps i favorits a l'editor**: poder afegir una app o un favorit des de la
+   biblioteca de la pestanya Pantalla, sense haver de canviar de pestanya.
+4. **Graella manual**: el model ja guarda `grid.mode`/`cols`; falta que
+   l'editor el faci servir per calcular i mostrar el repartiment.
+5. **Neteja del repo**: treure `panel.log`, `mostra_*.png` i `preview_*.png`
    de l'arrel i afegir-los al `.gitignore`.
-5. **Empaquetat** (fase F): valorar un `.app`/instal·lador i l'actualització de
-   firmware des del panell (amb validació del dispositiu abans de flashejar).
+6. **Empaquetat** (fase F): valorar un `.app`/instal·lador i l'actualitzacio de
+   firmware des del panell (amb validacio del dispositiu abans de flashejar).
 
    i s'avisa; rebutjar deixaria el panell sense poder desar res.
 4. **La geometria és compartida.** Les constants del simulador (`F` a

@@ -51,17 +51,57 @@
          margin: 0 18px 24px; max-width: 1250px; }
   .pill { font-size: 12px; color: var(--dim); }
 
+  /* --- Banner superior ----------------------------------------------------- *
+   * Es la capcalera del producte: identitat, estat de connexio, controls del
+   * port i un menu per saltar a qualsevol seccio o importar/exportar. Ha de
+   * ser compacte: el protagonisme el te el contingut. */
+  header { gap: 10px; padding: 10px 18px; }
+  header .marca { display: flex; align-items: center; gap: 10px; }
+  header .logo { width: 30px; height: 30px; border-radius: 9px; flex: none;
+                 display: flex; align-items: center; justify-content: center;
+                 font-size: 12px; font-weight: 700; letter-spacing: .5px;
+                 color: #04222b; background: linear-gradient(135deg, var(--accent), #7ae7ff); }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+  header .estat { display: flex; align-items: center; gap: 7px;
+                  background: var(--card2); border: 1px solid var(--edge);
+                  border-radius: 999px; padding: 5px 12px 5px 9px; }
+  .menuWrap { position: relative; }
+  #menuDesplegable { position: absolute; right: 0; top: calc(100% + 8px); min-width: 250px;
+                     background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+                     box-shadow: 0 18px 40px rgba(0,0,0,.5); padding: 6px; z-index: 40;
+                     display: none; }
+  #menuDesplegable.on { display: block; }
+  #menuDesplegable .titol { font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+                            color: var(--dim); padding: 8px 10px 4px; }
+  #menuDesplegable button { display: block; width: 100%; text-align: left; background: transparent;
+                            border: none; border-radius: 8px; padding: 8px 10px; color: var(--text); }
+  #menuDesplegable button:hover { background: var(--card2); }
+  #menuDesplegable hr { border: none; border-top: 1px solid var(--edge); margin: 6px 4px; }
+  .modal { position: fixed; inset: 0; background: rgba(6,9,13,.72); z-index: 60;
+           display: none; align-items: center; justify-content: center; padding: 20px; }
+  .modal.on { display: flex; }
+  .modal .caixa { background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+                  padding: 18px 20px; max-width: 620px; width: 100%; max-height: 84vh;
+                  overflow: auto; box-shadow: 0 24px 60px rgba(0,0,0,.6); }
+  .modal h2 { font-size: 15px; text-transform: none; letter-spacing: 0; color: var(--text);
+              margin: 0 0 12px; }
+  .modal code { background: var(--bg); border: 1px solid var(--edge); border-radius: 5px;
+                padding: 1px 5px; font: 12px ui-monospace, Menlo, monospace; }
+  .modal textarea { width: 100%; height: 220px; background: var(--bg); color: var(--text);
+                    border: 1px solid var(--edge); border-radius: 9px; padding: 10px;
+                    font: 12px ui-monospace, Menlo, monospace; }
+
   /* --- Pestanyes ----------------------------------------------------------- *
    * El panell te molts apartats i en una sola pagina quedava llarg i feixuc.
    * Ara s'agrupen en pestanyes (ho munta el JavaScript). */
-  nav#tabs { display: flex; gap: 2px; padding: 0 12px; background: var(--card);
+  nav#tabs { display: flex; gap: 3px; padding: 8px 14px 0; background: var(--bg);
              border-bottom: 1px solid var(--edge); overflow-x: auto; }
-  nav#tabs button { background: transparent; border: none; border-bottom: 2px solid transparent;
-                    border-radius: 0; padding: 11px 14px; color: var(--dim);
+  nav#tabs button { background: transparent; border: 1px solid transparent; border-bottom: none;
+                    border-radius: 9px 9px 0 0; padding: 9px 15px; color: var(--dim);
                     white-space: nowrap; font-weight: 500; }
-  nav#tabs button:hover { color: var(--text); border-bottom-color: var(--edge); }
-  nav#tabs button.on { color: var(--accent); border-bottom-color: var(--accent);
-                       font-weight: 600; }
+  nav#tabs button:hover { color: var(--text); background: var(--card); }
+  nav#tabs button.on { color: var(--accent); background: var(--card);
+                       border-color: var(--edge); font-weight: 600; }
   .tabpane { display: none; }
   .tabpane.on { display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
                 padding: 16px 18px; max-width: 1250px; margin: 0 auto;
@@ -69,20 +109,21 @@
   @media (max-width: 900px) { .tabpane.on { grid-template-columns: 1fr; } }
   /* Apartat que ocupa tota l'amplada de la pestanya. */
   .tabpane > section.ampla { grid-column: 1 / -1; }
+  /* Si una pestanya nomes te un apartat, que no quedi a mitja amplada. */
+  .tabpane.on > section:only-child { grid-column: 1 / -1; }
 
-  /* A "Pantalles", la previsualitzacio queda ENGANXADA a la dreta mentre
-   * edites: es la gracia de tenir-la, veure el que fas al moment. */
-  #tab-pantalles > #s-preview { grid-column: 2; grid-row: 1 / span 3;
-                                position: sticky; top: 10px; }
-  #tab-pantalles > #s-pantalles,
-  #tab-pantalles > #s-gadgets,
-  #tab-pantalles > #s-botons { grid-column: 1; }
+  /* A "Pantalla", l'editor va a dalt i ocupa tota l'amplada (ell ja te dues
+   * columnes a dins); a sota hi queden la llista de pantalles i la de gadgets. */
+  #tab-pantalla > #s-preview { grid-column: 1 / -1; grid-row: 1; }
+  #tab-pantalla > #s-pantalles { grid-column: 1; }
+  #tab-pantalla > #s-gadgets { grid-column: 2; }
   @media (max-width: 900px) {
-    #tab-pantalles > #s-preview { grid-column: 1; grid-row: auto;
-                                  position: static; }
+    #tab-pantalla > #s-pantalles,
+    #tab-pantalla > #s-gadgets { grid-column: 1 / -1; }
   }
-  /* A "Apps i icones", la reixeta d'apps i el pujar icones volen tota l'amplada. */
-  #tab-apps > section { grid-column: 1 / -1; }
+  /* A "Aplicacions" i "Dispositiu", les reixetes volen tota l'amplada. */
+  #tab-aplicacions > section,
+  #tab-dispositiu > section { grid-column: 1 / -1; }
 
   /* Reixeta d'apps instal·lades (una icona gran i el nom a sota). */
   .appgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -183,15 +224,28 @@
 </head>
 <body>
 <header>
-  <h1>Mac Panel</h1>
-  <span class="dot" id="dot"></span>
-  <span class="pill" id="connLabel">desconnectat</span>
+  <div class="marca">
+    <span class="logo">MP</span>
+    <h1>Mac Panel</h1>
+  </div>
+  <div class="estat">
+    <span class="dot" id="dot"></span>
+    <span class="pill" id="connLabel">desconnectat</span>
+  </div>
   <select id="portSel" title="Port serie"></select>
   <button id="btnConnect" class="ghost">Connecta</button>
   <button id="btnDisconnect" class="ghost">Desconnecta</button>
   <span class="spacer"></span>
   <span class="pill" id="statsPill"></span>
+  <div class="menuWrap">
+    <button id="btnMenu" class="ghost" title="Menu del panell">Menu ▾</button>
+    <div id="menuDesplegable"></div>
+  </div>
 </header>
+
+<div class="modal" id="modal">
+  <div class="caixa" id="modalCaixa"></div>
+</div>
 
 <nav id="tabs"></nav>
 
@@ -1363,22 +1417,40 @@ document.getElementById("btnApplyLink").addEventListener("click", async () => {
 });
 
 /* --- Pestanyes ------------------------------------------------------------ *
- * El panell te molts apartats i en una sola pagina quedava llarg i feixuc: cal
- * anar baixant i no saps on es cada cosa. Els agrupem en pestanyes, i cada
- * apartat va a la que li toca. Els apartats es MOUEN aqui (no cal tocar
- * l'ordre del HTML ni duplicar-lo). */
+ * El panell te molts apartats i en una sola pagina quedava llarg i feixuc.
+ * Els agrupem en les set seccions del producte, i cada apartat va a la que li
+ * toca. Els apartats es MOUEN aqui (no cal tocar l'ordre del HTML ni
+ * duplicar-lo).
+ *
+ * L'ordre importa: es el de la barra, i el primer es el que surt per defecte.
+ * Per afegir una seccio nova n'hi ha prou amb una entrada mes aqui. */
 const PESTANYES = [
-  { id: "pantalles", nom: "Pantalles", secs: [
-      "s-pantalles", "s-gadgets", "s-botons", "s-preview"] },
-  { id: "apps", nom: "Apps i icones", secs: [
-      "s-apps", "s-icones"] },
-  { id: "avisos", nom: "Avisos", secs: [
+  { id: "pantalla", nom: "Pantalla", secs: [
+      "s-preview", "s-pantalles", "s-gadgets"] },
+  { id: "aplicacions", nom: "Aplicacions", secs: [
+      "s-apps", "s-app-ara"] },
+  { id: "favorits", nom: "Favorits", secs: [
+      "s-favorits"] },
+  { id: "shortcuts", nom: "Shortcuts", secs: [
+      "s-botons"] },
+  { id: "utilitats", nom: "Utilitats", secs: [
       "s-avisos-placa", "s-avisos-mac"] },
-  { id: "ajustos", nom: "Ajustos", secs: [
-      "s-enllac", "s-favorits", "s-ajustos-placa"] },
-  { id: "estat", nom: "Estat", secs: [
-      "s-estat", "s-app-ara"] },
+  { id: "dispositiu", nom: "Dispositiu", secs: [
+      "s-estat", "s-icones"] },
+  { id: "configuracio", nom: "Configuracio", secs: [
+      "s-enllac", "s-ajustos-placa"] },
 ];
+
+/* Que fa cada seccio, per a l'ajuda i per al menu. */
+const DESCRIPCIO_PESTANYA = {
+  pantalla: "Editor visual: simulador, gadgets i pantalles",
+  aplicacions: "Apps del Mac per posar-les a la pantalla",
+  favorits: "Favorits dels navegadors",
+  shortcuts: "Botons de la pantalla (ordres i tecles)",
+  utilitats: "Avisos i proves",
+  dispositiu: "Estat de la placa i icones",
+  configuracio: "Enllac, tema, repos i brillantor",
+};
 
 function muntaPestanyes() {
   const main = document.querySelector("main");
@@ -1418,9 +1490,9 @@ function mostraPestanya(id, guardaHash) {
   }
   try { localStorage.setItem("macpanel.pestanya", id); } catch (e) { /* res */ }
   /* En entrar a la pestanya d'apps, assegurem que la llista estigui fresca. */
-  if (id === "apps") carregaApps();
+  if (id === "aplicacions") carregaApps();
   /* El canvas no es pot pintar fins que tenim la configuracio del Mac. */
-  if (id === "pantalles" && cfg.pages.length) renderPreview();
+  if (id === "pantalla" && cfg.pages.length) renderPreview();
 }
 
 window.addEventListener("hashchange", () => {
@@ -1960,6 +2032,150 @@ function renderPropietatsPantalla(box) {
   box.appendChild(el("p", { class: "muted" },
     "El repartiment el calcula la placa: la graella de botons s'adapta al nombre " +
     "d'elements i a la mida de la pantalla."));
+/* --- Menu del banner, ajuda i portabilitat -------------------------------- *
+ * El banner ha de donar accés rapid a tot: les seccions, l'ajuda i
+ * importar/exportar la configuracio. */
+function obreMenu(on) {
+  const m = document.getElementById("menuDesplegable");
+  if (m) m.classList.toggle("on", on !== false ? on : !m.classList.contains("on"));
+}
+
+function renderMenu() {
+  const m = document.getElementById("menuDesplegable");
+  if (!m) return;
+  m.innerHTML = "";
+  m.appendChild(el("div", { class: "titol" }, "Seccions"));
+  PESTANYES.forEach((t) => {
+    m.appendChild(el("button", { onclick: () => { obreMenu(false); mostraPestanya(t.id); } },
+      t.nom + "  ·  " + (DESCRIPCIO_PESTANYA[t.id] || "")));
+  });
+  m.appendChild(el("hr"));
+  m.appendChild(el("div", { class: "titol" }, "Configuracio"));
+  m.appendChild(el("button", { onclick: () => { obreMenu(false); exportaConfig(); } },
+    "Exporta la configuracio..."));
+  m.appendChild(el("button", { onclick: () => { obreMenu(false); importaConfig(); } },
+    "Importa una configuracio..."));
+  m.appendChild(el("hr"));
+  m.appendChild(el("button", { onclick: () => { obreMenu(false); mostraAjuda(); } },
+    "Ajuda i informacio del dispositiu"));
+}
+
+function obreModal(fills) {
+  const caixa = document.getElementById("modalCaixa");
+  const m = document.getElementById("modal");
+  if (!caixa || !m) return;
+  caixa.innerHTML = "";
+  fills.forEach((f) => caixa.appendChild(f));
+  m.classList.add("on");
+}
+
+function tancaModal() {
+  const m = document.getElementById("modal");
+  if (m) m.classList.remove("on");
+}
+
+/* Informacio del dispositiu i ajuda. Tot el que hi surt ve de l'estat real:
+ * res inventat. */
+function mostraAjuda() {
+  const s = state.stats || {};
+  const info = el("div");
+  info.appendChild(el("h2", {}, "Informacio del dispositiu"));
+  const files = [
+    ["Port", state.port || "(cap)"],
+    ["Connexio", state.connected ? "connectat" : "desconnectat"],
+    ["Mac", s.host || "(sense dades)"],
+    ["Hora del Mac", s.time || "(sense dades)"],
+    ["Encesa", fmtSegons(s.uptime || 0)],
+    ["CPU / RAM", (s.cpu != null ? Math.round(s.cpu) + "%" : "--") + " / " +
+                  (s.mem != null ? Math.round(s.mem) + "%" : "--")],
+    ["Versio del model", String((MODEL && MODEL.versio) || "?")],
+    ["Pantalles", String((cfg.pages || []).length)],
+    ["Icones a la placa", String((state.icons || []).length)],
+  ];
+  const t = el("div", { class: "statgrid" });
+  files.forEach(([k, v]) => {
+    t.appendChild(el("div", { class: "stat" }, el("b", {}, v), el("span", {}, k)));
+  });
+  info.appendChild(t);
+
+  info.appendChild(el("h2", {}, "Com funciona"));
+  info.appendChild(el("p", { class: "muted" },
+    "Aquest panell desa la configuracio i l'envia a la placa pel port serie. " +
+    "El disseny es descriu a la pestanya Pantalla; la placa el pinta amb les " +
+    "seves regles (l'editor les reprodueix al simulador)."));
+
+  info.appendChild(el("h2", {}, "Comandes de la placa"));
+  info.appendChild(el("p", { class: "muted" },
+    "Es poden escriure a la consola serie de la placa: " +
+    "help, info, cfg, page N, menu, apps, favs, botons, captura, splash, " +
+    "ajust ID, toca X Y, llisca X1 Y1 X2 Y2, tecla NOM, reset, restart."));
+
+  const b = el("div", { class: "row" });
+  b.appendChild(el("button", { class: "primary", onclick: tancaModal }, "Tanca"));
+  info.appendChild(b);
+  obreModal([info]);
+}
+
+/* Exporta: el servidor treu el port i la frequencia (son d'aquest ordinador) i
+ * dona nomes el disseny. */
+async function exportaConfig() {
+  const box = el("div");
+  box.appendChild(el("h2", {}, "Exporta la configuracio"));
+  box.appendChild(el("p", { class: "muted" },
+    "Aquest text es el DISSENY (pantalles, gadgets i botons). No hi ha el port " +
+    "serie ni cap ruta d'aquest ordinador, aixi que es pot passar a un altre."));
+  const ta = el("textarea", { readonly: "readonly" });
+  const boto = el("button", { class: "primary" }, "Copia");
+  const row = el("div", { class: "row" }, boto,
+                 el("button", { class: "ghost", onclick: tancaModal }, "Tanca"));
+  box.appendChild(ta);
+  box.appendChild(row);
+  obreModal([box]);
+  try {
+    const r = await fetch("/api/exporta");
+    ta.value = await r.text();
+  } catch (e) {
+    ta.value = "(no s'ha pogut llegir la configuracio)";
+  }
+  boto.addEventListener("click", () => {
+    ta.select();
+    try { document.execCommand("copy"); boto.textContent = "Copiat"; } catch (e) { /* res */ }
+  });
+}
+
+/* Importa: s'enganxa un JSON i el servidor el valida, el migra si cal i el
+ * desa. Si hi ha problemes, els diu. */
+function importaConfig() {
+  const box = el("div");
+  box.appendChild(el("h2", {}, "Importa una configuracio"));
+  box.appendChild(el("p", { class: "muted" },
+    "Enganxa aqui una configuracio exportada (o d'una versio anterior: es migra " +
+    "sola). Es valida abans de desar-la."));
+  const ta = el("textarea", { placeholder: "{ ... }" });
+  const estat = el("p", { class: "pill" });
+  const boto = el("button", { class: "primary" }, "Importa");
+  boto.addEventListener("click", async () => {
+    estat.textContent = "important...";
+    const r = await api("/api/importa", { method: "POST", body: JSON.stringify({ config: ta.value }) });
+    if (!r || !r.ok) {
+      estat.textContent = "no s'ha pogut importar: " + ((r && r.error) || "resposta inesperada");
+      return;
+    }
+    cfg = r.config;
+    loadFromConfig(cfg);
+    renderAll();
+    estat.textContent = (r.avisos && r.avisos.length)
+      ? "importat amb avisos: " + r.avisos.join(" · ")
+      : "importat correctament";
+  });
+  box.appendChild(ta);
+  box.appendChild(el("div", { class: "row" }, boto,
+                     el("button", { class: "ghost", onclick: tancaModal }, "Tanca")));
+  box.appendChild(estat);
+  obreModal([box]);
+}
+
+
 }
 
 /* --- Accions de l'editor -------------------------------------------------- */
@@ -2021,8 +2237,25 @@ document.getElementById("btnRecarregaApps").addEventListener("click", () => {
   carregaApps(true);
 });
 
+/* El menu del banner: s'obre amb el boto, es tanca clicant fora o amb Escape. */
+document.getElementById("btnMenu").addEventListener("click", (e) => {
+  e.stopPropagation();
+  obreMenu();
+});
+document.addEventListener("click", (e) => {
+  const m = document.getElementById("menuDesplegable");
+  if (m && m.classList.contains("on") && !e.target.closest(".menuWrap")) obreMenu(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { obreMenu(false); tancaModal(); }
+});
+document.getElementById("modal").addEventListener("click", (e) => {
+  if (e.target.id === "modal") tancaModal();
+});
+
 /* --- Arrencada ------------------------------------------------------------ */
 muntaPestanyes();
+renderMenu();
 
 let pestaInicial = pestanyaDesDeHash();
 if (!pestaInicial) {
@@ -2031,7 +2264,7 @@ if (!pestaInicial) {
     if (desada && PESTANYES.some(t => t.id === desada)) pestaInicial = desada;
   } catch (e) { /* res */ }
 }
-mostraPestanya(pestaInicial || "pantalles", false);
+mostraPestanya(pestaInicial || "pantalla", false);
 
 carregaApps();
 
